@@ -473,8 +473,8 @@ test('session-end: preserves the v2 trust schema and removes legacy aliases', ()
     if (r.exitCode !== 0) return `exit ${r.exitCode}: ${r.stderr.slice(0, 200)}`;
 
     const updated = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    if (updated.trust.sessionsCompleted !== 8) {
-      return `expected sessionsCompleted=8, got ${updated.trust.sessionsCompleted}`;
+    if (updated.trust.sessionsCompleted !== 10) {
+      return `expected sessionsCompleted=10, got ${updated.trust.sessionsCompleted}`;
     }
     const legacyKeys = Object.keys(updated.trust).filter(key => key.includes('_'));
     if (legacyKeys.length > 0) return `legacy trust keys remain: ${legacyKeys.join(', ')}`;

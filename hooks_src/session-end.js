@@ -288,6 +288,29 @@ function logSessionCost(event) {
  * Tracks sessions completed and campaigns completed this session.
  * Non-critical -- wrapped in try/catch.
  */
+function reconcileV2TrustCounters(trust) {
+  const reconciled = { ...trust };
+  const legacyCounters = {
+    sessionsCompleted: 'sessions_completed',
+    campaignsCompleted: 'campaigns_completed',
+    fleetCleanMerges: 'fleet_clean_merges',
+    improveLoopsAccepted: 'improve_loops_accepted',
+    daemonRuns: 'daemon_runs',
+  };
+
+  for (const [canonicalKey, legacyKey] of Object.entries(legacyCounters)) {
+    if (!Number.isInteger(trust[legacyKey]) || trust[legacyKey] < 0) continue;
+    const canonicalValue = Number.isInteger(trust[canonicalKey]) && trust[canonicalKey] >= 0
+      ? trust[canonicalKey]
+      : 0;
+    // Earlier v2 hooks wrote new activity to snake_case aliases. Add that
+    // activity before normalization removes the aliases.
+    reconciled[canonicalKey] = canonicalValue + trust[legacyKey];
+  }
+
+  return normalizeTrust(reconciled);
+}
+
 function incrementTrustCounters() {
   try {
     const configPath = path.join(PROJECT_ROOT, '.claude', 'harness.json');
@@ -312,9 +335,9 @@ function incrementTrustCounters() {
         };
 
     if (isV2) {
-      // normalizeTrust preserves valid canonical values, imports legacy aliases,
-      // and removes snake_case fields that the v2 validator rejects.
-      config.trust = normalizeTrust(config.trust);
+      // Reconcile activity written by earlier v2 hooks before normalization
+      // removes snake_case aliases that the v2 validator rejects.
+      config.trust = reconcileV2TrustCounters(config.trust);
     } else if (!config.trust || typeof config.trust !== 'object' || Array.isArray(config.trust)) {
       config.trust = {
         sessions_completed: 0,
