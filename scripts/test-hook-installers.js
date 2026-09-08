@@ -135,7 +135,7 @@ assert(!translated.hooks.Stop.some((entry) =>
 const pluginHooks = translateCodexPluginHooks(hooksTemplate);
 const pluginPermissionHook = pluginHooks.hooks.PermissionRequest[0].hooks[0];
 assert(pluginPermissionHook.command.includes('${PLUGIN_ROOT}'), 'plugin hooks should use PLUGIN_ROOT in POSIX command');
-assert(pluginPermissionHook.commandWindows.includes('%PLUGIN_ROOT%'), 'plugin hooks should use PLUGIN_ROOT in Windows command');
+assert(pluginPermissionHook.commandWindows.includes('process.env.PLUGIN_ROOT'), 'plugin hooks should use PLUGIN_ROOT in Windows command');
 const checkedInPluginHooks = JSON.parse(fs.readFileSync(
   path.join(citadelRoot, 'runtimes', 'codex', 'hooks.json'),
   'utf8'

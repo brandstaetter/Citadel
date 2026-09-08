@@ -99,7 +99,7 @@ async function run() {
       if (!firstHook?.command?.includes('${PLUGIN_ROOT}')) {
         errors.push('plugin hooks should use PLUGIN_ROOT-relative commands');
       }
-      if (!firstHook?.commandWindows?.includes('%PLUGIN_ROOT%')) {
+      if (!firstHook?.commandWindows?.includes('process.env.PLUGIN_ROOT')) {
         errors.push('plugin hooks should include Windows PLUGIN_ROOT command');
       }
     }

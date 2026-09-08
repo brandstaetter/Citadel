@@ -8,7 +8,7 @@
             "command": "node \"${PLUGIN_ROOT}/hooks_src/codex-adapter.js\" protect-files",
             "statusMessage": "Citadel: protect-files",
             "timeout": 5,
-            "commandWindows": "node \"%PLUGIN_ROOT%\\hooks_src\\codex-adapter.js\" protect-files"
+            "commandWindows": "node -e \"require(require('path').join(process.env.PLUGIN_ROOT,'hooks_src','codex-adapter.js')).main(process.argv[1],{structuredSecurityBlocks:true})\" protect-files"
           }
         ],
         "matcher": "apply_patch"
@@ -20,7 +20,7 @@
             "command": "node \"${PLUGIN_ROOT}/hooks_src/codex-adapter.js\" protect-files",
             "statusMessage": "Citadel: protect-files",
             "timeout": 5,
-            "commandWindows": "node \"%PLUGIN_ROOT%\\hooks_src\\codex-adapter.js\" protect-files"
+            "commandWindows": "node -e \"require(require('path').join(process.env.PLUGIN_ROOT,'hooks_src','codex-adapter.js')).main(process.argv[1],{structuredSecurityBlocks:true})\" protect-files"
           }
         ],
         "matcher": "Read"
@@ -32,7 +32,7 @@
             "command": "node \"${PLUGIN_ROOT}/hooks_src/codex-adapter.js\" external-action-gate",
             "statusMessage": "Citadel: external-action-gate",
             "timeout": 5,
-            "commandWindows": "node \"%PLUGIN_ROOT%\\hooks_src\\codex-adapter.js\" external-action-gate"
+            "commandWindows": "node -e \"require(require('path').join(process.env.PLUGIN_ROOT,'hooks_src','codex-adapter.js')).main(process.argv[1],{structuredSecurityBlocks:true})\" external-action-gate"
           }
         ],
         "matcher": "Bash"
@@ -44,7 +44,7 @@
             "command": "node \"${PLUGIN_ROOT}/hooks_src/codex-adapter.js\" governance",
             "statusMessage": "Citadel: governance",
             "timeout": 3,
-            "commandWindows": "node \"%PLUGIN_ROOT%\\hooks_src\\codex-adapter.js\" governance"
+            "commandWindows": "node -e \"require(require('path').join(process.env.PLUGIN_ROOT,'hooks_src','codex-adapter.js')).main(process.argv[1],{structuredSecurityBlocks:true})\" governance"
           }
         ],
         "matcher": "apply_patch"
@@ -56,7 +56,7 @@
             "command": "node \"${PLUGIN_ROOT}/hooks_src/codex-adapter.js\" governance",
             "statusMessage": "Citadel: governance",
             "timeout": 3,
-            "commandWindows": "node \"%PLUGIN_ROOT%\\hooks_src\\codex-adapter.js\" governance"
+            "commandWindows": "node -e \"require(require('path').join(process.env.PLUGIN_ROOT,'hooks_src','codex-adapter.js')).main(process.argv[1],{structuredSecurityBlocks:true})\" governance"
           }
         ],
         "matcher": "Bash"
@@ -68,7 +68,7 @@
             "command": "node \"${PLUGIN_ROOT}/hooks_src/codex-adapter.js\" governance",
             "statusMessage": "Citadel: governance",
             "timeout": 3,
-            "commandWindows": "node \"%PLUGIN_ROOT%\\hooks_src\\codex-adapter.js\" governance"
+            "commandWindows": "node -e \"require(require('path').join(process.env.PLUGIN_ROOT,'hooks_src','codex-adapter.js')).main(process.argv[1],{structuredSecurityBlocks:true})\" governance"
           }
         ],
         "matcher": "Agent"
@@ -82,7 +82,7 @@
             "command": "node \"${PLUGIN_ROOT}/hooks_src/codex-adapter.js\" post-edit",
             "statusMessage": "Citadel: post-edit",
             "timeout": 30,
-            "commandWindows": "node \"%PLUGIN_ROOT%\\hooks_src\\codex-adapter.js\" post-edit"
+            "commandWindows": "node -e \"require(require('path').join(process.env.PLUGIN_ROOT,'hooks_src','codex-adapter.js')).main(process.argv[1],{structuredSecurityBlocks:true})\" post-edit"
           }
         ]
       },
@@ -93,7 +93,7 @@
             "command": "node \"${PLUGIN_ROOT}/hooks_src/codex-adapter.js\" organize-enforce",
             "statusMessage": "Citadel: organize-enforce",
             "timeout": 5,
-            "commandWindows": "node \"%PLUGIN_ROOT%\\hooks_src\\codex-adapter.js\" organize-enforce"
+            "commandWindows": "node -e \"require(require('path').join(process.env.PLUGIN_ROOT,'hooks_src','codex-adapter.js')).main(process.argv[1],{structuredSecurityBlocks:true})\" organize-enforce"
           }
         ],
         "matcher": "apply_patch"
@@ -105,7 +105,7 @@
             "command": "node \"${PLUGIN_ROOT}/hooks_src/codex-adapter.js\" complexity-check",
             "statusMessage": "Citadel: complexity-check",
             "timeout": 5,
-            "commandWindows": "node \"%PLUGIN_ROOT%\\hooks_src\\codex-adapter.js\" complexity-check"
+            "commandWindows": "node -e \"require(require('path').join(process.env.PLUGIN_ROOT,'hooks_src','codex-adapter.js')).main(process.argv[1],{structuredSecurityBlocks:true})\" complexity-check"
           }
         ],
         "matcher": "apply_patch"
@@ -117,7 +117,7 @@
             "command": "node \"${PLUGIN_ROOT}/hooks_src/codex-adapter.js\" circuit-breaker",
             "statusMessage": "Citadel: circuit-breaker",
             "timeout": 5,
-            "commandWindows": "node \"%PLUGIN_ROOT%\\hooks_src\\codex-adapter.js\" circuit-breaker"
+            "commandWindows": "node -e \"require(require('path').join(process.env.PLUGIN_ROOT,'hooks_src','codex-adapter.js')).main(process.argv[1],{structuredSecurityBlocks:true})\" circuit-breaker"
           }
         ],
         "matcher": "Bash"
@@ -129,7 +129,7 @@
             "command": "node \"${PLUGIN_ROOT}/hooks_src/codex-adapter.js\" cost-tracker",
             "statusMessage": "Citadel: cost-tracker",
             "timeout": 5,
-            "commandWindows": "node \"%PLUGIN_ROOT%\\hooks_src\\codex-adapter.js\" cost-tracker"
+            "commandWindows": "node -e \"require(require('path').join(process.env.PLUGIN_ROOT,'hooks_src','codex-adapter.js')).main(process.argv[1],{structuredSecurityBlocks:true})\" cost-tracker"
           }
         ]
       }
@@ -142,7 +142,7 @@
             "command": "node \"${PLUGIN_ROOT}/hooks_src/codex-adapter.js\" pre-compact",
             "statusMessage": "Citadel: pre-compact",
             "timeout": 15,
-            "commandWindows": "node \"%PLUGIN_ROOT%\\hooks_src\\codex-adapter.js\" pre-compact"
+            "commandWindows": "node -e \"require(require('path').join(process.env.PLUGIN_ROOT,'hooks_src','codex-adapter.js')).main(process.argv[1],{structuredSecurityBlocks:true})\" pre-compact"
           }
         ]
       }
@@ -155,7 +155,7 @@
             "command": "node \"${PLUGIN_ROOT}/hooks_src/codex-adapter.js\" post-compact",
             "statusMessage": "Citadel: post-compact",
             "timeout": 10,
-            "commandWindows": "node \"%PLUGIN_ROOT%\\hooks_src\\codex-adapter.js\" post-compact"
+            "commandWindows": "node -e \"require(require('path').join(process.env.PLUGIN_ROOT,'hooks_src','codex-adapter.js')).main(process.argv[1],{structuredSecurityBlocks:true})\" post-compact"
           }
         ]
       }
@@ -168,7 +168,7 @@
             "command": "node \"${PLUGIN_ROOT}/hooks_src/codex-adapter.js\" quality-gate",
             "statusMessage": "Citadel: quality-gate",
             "timeout": 10,
-            "commandWindows": "node \"%PLUGIN_ROOT%\\hooks_src\\codex-adapter.js\" quality-gate"
+            "commandWindows": "node -e \"require(require('path').join(process.env.PLUGIN_ROOT,'hooks_src','codex-adapter.js')).main(process.argv[1],{structuredSecurityBlocks:true})\" quality-gate"
           }
         ]
       }
@@ -181,7 +181,7 @@
             "command": "node \"${PLUGIN_ROOT}/hooks_src/codex-adapter.js\" user-prompt-submit",
             "statusMessage": "Citadel: user-prompt-submit",
             "timeout": 5,
-            "commandWindows": "node \"%PLUGIN_ROOT%\\hooks_src\\codex-adapter.js\" user-prompt-submit"
+            "commandWindows": "node -e \"require(require('path').join(process.env.PLUGIN_ROOT,'hooks_src','codex-adapter.js')).main(process.argv[1],{structuredSecurityBlocks:true})\" user-prompt-submit"
           }
         ]
       }
@@ -194,7 +194,7 @@
             "command": "node \"${PLUGIN_ROOT}/hooks_src/codex-adapter.js\" init-project",
             "statusMessage": "Citadel: init-project",
             "timeout": 10,
-            "commandWindows": "node \"%PLUGIN_ROOT%\\hooks_src\\codex-adapter.js\" init-project"
+            "commandWindows": "node -e \"require(require('path').join(process.env.PLUGIN_ROOT,'hooks_src','codex-adapter.js')).main(process.argv[1],{structuredSecurityBlocks:true})\" init-project"
           }
         ]
       },
@@ -205,7 +205,7 @@
             "command": "node \"${PLUGIN_ROOT}/hooks_src/codex-adapter.js\" restore-compact",
             "statusMessage": "Citadel: restore-compact",
             "timeout": 5,
-            "commandWindows": "node \"%PLUGIN_ROOT%\\hooks_src\\codex-adapter.js\" restore-compact"
+            "commandWindows": "node -e \"require(require('path').join(process.env.PLUGIN_ROOT,'hooks_src','codex-adapter.js')).main(process.argv[1],{structuredSecurityBlocks:true})\" restore-compact"
           }
         ],
         "matcher": "compact"
@@ -217,7 +217,7 @@
             "command": "node \"${PLUGIN_ROOT}/hooks_src/codex-adapter.js\" intake-scanner",
             "statusMessage": "Citadel: intake-scanner",
             "timeout": 5,
-            "commandWindows": "node \"%PLUGIN_ROOT%\\hooks_src\\codex-adapter.js\" intake-scanner"
+            "commandWindows": "node -e \"require(require('path').join(process.env.PLUGIN_ROOT,'hooks_src','codex-adapter.js')).main(process.argv[1],{structuredSecurityBlocks:true})\" intake-scanner"
           }
         ]
       }
@@ -230,7 +230,7 @@
             "command": "node \"${PLUGIN_ROOT}/hooks_src/codex-adapter.js\" session-end",
             "statusMessage": "Citadel: session-end",
             "timeout": 3,
-            "commandWindows": "node \"%PLUGIN_ROOT%\\hooks_src\\codex-adapter.js\" session-end"
+            "commandWindows": "node -e \"require(require('path').join(process.env.PLUGIN_ROOT,'hooks_src','codex-adapter.js')).main(process.argv[1],{structuredSecurityBlocks:true})\" session-end"
           }
         ]
       }
@@ -243,7 +243,7 @@
             "command": "node \"${PLUGIN_ROOT}/hooks_src/codex-adapter.js\" subagent-start",
             "statusMessage": "Citadel: subagent-start",
             "timeout": 5,
-            "commandWindows": "node \"%PLUGIN_ROOT%\\hooks_src\\codex-adapter.js\" subagent-start"
+            "commandWindows": "node -e \"require(require('path').join(process.env.PLUGIN_ROOT,'hooks_src','codex-adapter.js')).main(process.argv[1],{structuredSecurityBlocks:true})\" subagent-start"
           }
         ]
       }
@@ -256,7 +256,7 @@
             "command": "node \"${PLUGIN_ROOT}/hooks_src/codex-adapter.js\" subagent-stop",
             "statusMessage": "Citadel: subagent-stop",
             "timeout": 5,
-            "commandWindows": "node \"%PLUGIN_ROOT%\\hooks_src\\codex-adapter.js\" subagent-stop"
+            "commandWindows": "node -e \"require(require('path').join(process.env.PLUGIN_ROOT,'hooks_src','codex-adapter.js')).main(process.argv[1],{structuredSecurityBlocks:true})\" subagent-stop"
           }
         ]
       }
@@ -269,7 +269,7 @@
             "command": "node \"${PLUGIN_ROOT}/hooks_src/codex-adapter.js\" permission-request",
             "statusMessage": "Citadel: permission-request",
             "timeout": 3,
-            "commandWindows": "node \"%PLUGIN_ROOT%\\hooks_src\\codex-adapter.js\" permission-request"
+            "commandWindows": "node -e \"require(require('path').join(process.env.PLUGIN_ROOT,'hooks_src','codex-adapter.js')).main(process.argv[1],{structuredSecurityBlocks:true})\" permission-request"
           }
         ]
       }

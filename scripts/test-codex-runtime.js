@@ -17,6 +17,7 @@ assert.equal(typeof codexRuntime.projectCodexSkills, 'function', 'Codex runtime 
 assert.equal(typeof codexRuntime.projectCodexAgents, 'function', 'Codex runtime should expose agent projection');
 
 const adapterPath = path.join(__dirname, '..', 'hooks_src', 'codex-adapter.js');
+const { projectCodexOutput } = require(adapterPath);
 const projectRoot = path.join(__dirname, '..');
 const payload = {
   hook_event_name: 'PreToolUse',
@@ -33,6 +34,41 @@ const result = spawnSync(process.execPath, [adapterPath, 'protect-files'], {
 assert.equal(result.status, 2, 'Codex adapter should propagate hook exit status');
 assert(result.stderr.includes('.env'), 'Codex adapter should surface the hook block reason on stderr');
 
+// Exercise the generated Windows command in real shells: PowerShell does not
+// expand %PLUGIN_ROOT% and collapses native exit 2. JSON denials must survive.
+if (process.platform === 'win32') {
+  const { translateCodexPluginHooks } = require('../runtimes/codex/generators/install-hooks');
+  const template = JSON.parse(fs.readFileSync(path.join(projectRoot, 'hooks/hooks-template.json'), 'utf8'));
+  const hooks = translateCodexPluginHooks(template).hooks.PreToolUse;
+  const cases = [
+    ['protect-files', JSON.stringify(payload), true],
+    ['protect-files', JSON.stringify({ ...payload, tool_input: { file_path: 'README.md' } }), false],
+    ['protect-files', '{bad json', true],
+    ['external-action-gate', '{bad json', true],
+    ['external-action-gate', JSON.stringify({ ...payload, tool_name: 'Bash', tool_input: { command: 'echo hook-probe' } }), false],
+  ];
+  for (const shell of ['cmd', 'pwsh']) {
+    for (const [name, input, denied] of cases) {
+      const command = hooks.flatMap(group => group.hooks).find(h => h.command.endsWith(` ${name}`)).commandWindows;
+      const shellResult = spawnSync(shell === 'cmd' ? process.env.COMSPEC : 'pwsh.exe',
+        shell === 'cmd' ? ['/C', `"${command}"`] : ['-NoProfile', '-Command', command], {
+          cwd: projectRoot, env: { ...process.env, PLUGIN_ROOT: projectRoot },
+          input, encoding: 'utf8', timeout: 10000, windowsHide: true,
+          windowsVerbatimArguments: shell === 'cmd',
+        });
+      assert.equal(shellResult.status, 0, `${shell}/${name}: ${shellResult.error || shellResult.stderr}`);
+      if (denied) {
+        const output = JSON.parse(shellResult.stdout).hookSpecificOutput;
+        assert.equal(output.hookEventName, 'PreToolUse');
+        assert.equal(output.permissionDecision, 'deny');
+        assert(output.permissionDecisionReason.trim());
+      } else {
+        assert(!shellResult.stdout.includes('"permissionDecision":"deny"'));
+      }
+    }
+  }
+}
+
 const tmpProject = fs.mkdtempSync(path.join(os.tmpdir(), 'citadel-codex-runtime-'));
 try {
   const skills = codexRuntime.projectCodexSkills({ projectRoot: tmpProject, skillName: 'review', dryRun: true });
@@ -43,9 +79,10 @@ try {
   fs.rmSync(tmpProject, { recursive: true, force: true });
 }
 
-// Codex Stop hook contract: plain text stdout from inner hooks must be
-// redirected to stderr (Codex rejects non-JSON stdout for Stop). JSON passes
-// through unchanged. Non-Stop events keep their plain-text stdout.
+// Codex hook output contracts: plain text from context-bearing hooks must be
+// wrapped as hookSpecificOutput JSON. PostCompact supports only the universal
+// output fields, so its text becomes systemMessage. Stop plain text must be
+// redirected to stderr, while valid Stop JSON passes through unchanged.
 const hooksDir = path.join(__dirname, '..', 'hooks_src');
 const plainHook = path.join(hooksDir, 'test-fixture-plain-stop.js');
 const jsonHook = path.join(hooksDir, 'test-fixture-json-stop.js');
@@ -74,6 +111,25 @@ try {
     encoding: 'utf8',
   });
   assert(nonStop.stdout.includes('plain text from hook'), 'Non-Stop events should keep plain-text stdout behaviour');
+
+  const postCompact = projectCodexOutput({
+    stdout: 'plain text from hook',
+    stderr: '',
+    nativeEventName: 'PostCompact',
+  });
+  assert.deepEqual(JSON.parse(postCompact.stdout), {
+    systemMessage: 'plain text from hook',
+  }, 'PostCompact text should use the supported Codex universal output shape');
+
+  const validPostCompact = JSON.stringify({
+    continue: true,
+    systemMessage: 'already valid',
+  });
+  assert.equal(projectCodexOutput({
+    stdout: validPostCompact,
+    stderr: '',
+    nativeEventName: 'PostCompact',
+  }).stdout, validPostCompact, 'valid PostCompact universal output should pass through unchanged');
 } finally {
   fs.rmSync(plainHook, { force: true });
   fs.rmSync(jsonHook, { force: true });

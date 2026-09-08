@@ -292,11 +292,47 @@ function projectCodexContextOutput(stdout, eventName) {
   });
 }
 
+function isValidCodexUniversalOutput(output) {
+  if (!output || typeof output !== 'object' || Array.isArray(output)) return false;
+  const allowedKeys = new Set(['continue', 'stopReason', 'suppressOutput', 'systemMessage']);
+  if (Object.keys(output).some((key) => !allowedKeys.has(key))) return false;
+  if ('continue' in output && typeof output.continue !== 'boolean') return false;
+  if ('stopReason' in output && output.stopReason !== null && typeof output.stopReason !== 'string') return false;
+  if ('suppressOutput' in output && typeof output.suppressOutput !== 'boolean') return false;
+  if ('systemMessage' in output && output.systemMessage !== null && typeof output.systemMessage !== 'string') return false;
+  return true;
+}
+
+function projectCodexPostCompactOutput(stdout) {
+  if (stdout.trim().length === 0) return '';
+
+  let parsed;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    parsed = null;
+  }
+
+  if (isValidCodexUniversalOutput(parsed)) return stdout;
+
+  const message = parsed
+    && typeof parsed === 'object'
+    && !Array.isArray(parsed)
+    && typeof parsed.message === 'string'
+    ? parsed.message
+    : stdout.trim();
+
+  return JSON.stringify({ systemMessage: message });
+}
+
 function projectCodexOutput(result) {
   const stdout = result.stdout || '';
   const stderr = result.stderr || '';
   if (['SessionStart', 'PostToolUse'].includes(result.nativeEventName)) {
     return { stdout: projectCodexContextOutput(stdout, result.nativeEventName), stderr };
+  }
+  if (result.nativeEventName === 'PostCompact') {
+    return { stdout: projectCodexPostCompactOutput(stdout), stderr };
   }
   if (result.nativeEventName !== 'Stop' || stdout.trim().length === 0) {
     return { stdout, stderr };
@@ -334,13 +370,25 @@ function writeResult(result) {
   if (projected.stderr) process.stderr.write(projected.stderr);
 }
 
-function main() {
-  const hookName = process.argv[2];
+function main(hookName = process.argv[2], options = {}) {
   let input = '';
   process.stdin.setEncoding('utf8');
   process.stdin.on('data', (chunk) => { input += chunk; });
   process.stdin.on('end', () => {
     const result = dispatchHook(hookName, input);
+    // PowerShell turns native exit 2 into exit 1. Use Codex's equivalent JSON
+    // denial for Windows plugin launches so a block cannot become a warning.
+    // Direct CLI launches retain their existing exit-code contract.
+    if (options.structuredSecurityBlocks && isSecurityHook(hookName) && result.status !== 0) {
+      process.stdout.write(JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'deny',
+          permissionDecisionReason: (result.stderr || result.stdout || 'Citadel security hook blocked this operation.').trim(),
+        },
+      }));
+      return;
+    }
     writeResult(result);
     process.exit(result.status);
   });
@@ -349,15 +397,18 @@ function main() {
 if (require.main === module) main();
 
 module.exports = Object.freeze({
+  main,
   SECURITY_HOOKS,
   dispatchHook,
   extractApplyPatchTargets,
   isValidCodexStopOutput,
   isSecurityHook,
   isValidCodexContextOutput,
+  isValidCodexUniversalOutput,
   parseApplyPatchOperations,
   projectLegacyPayloads,
   projectCodexOutput,
   projectCodexContextOutput,
+  projectCodexPostCompactOutput,
   validateSecurityEnvelope,
 });
