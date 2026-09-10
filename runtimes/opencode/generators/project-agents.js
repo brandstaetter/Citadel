@@ -54,6 +54,12 @@ const OPENCODE_PERMISSION_BY_TOOL = Object.freeze({
   edit: ['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'apply_patch'],
   bash: ['Bash', 'BashOutput', 'KillShell'],
   webfetch: ['WebFetch', 'WebSearch'],
+  // Delegation is the escape hatch that makes every other deny pointless: a
+  // subagent runs with its OWN permissions, not its caller's. Verified live -- a
+  // read-only arch-reviewer denied edit and bash still used `task` to hand the
+  // work to archon, which wrote the file. Denying `task` is what makes the rest
+  // of this map hold.
+  task: ['Agent', 'Task'],
 });
 
 // Only permissions opencode can actually gate. Read/Grep/Glob have no deny key,

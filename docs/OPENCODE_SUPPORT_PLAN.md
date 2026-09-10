@@ -1041,8 +1041,32 @@ to create `breach.txt`, the model refused on its own judgment. A restriction has
 to be demonstrated against a control that *succeeds*, or you are testing the
 model's manners rather than the permission layer.
 
-Four mutations were each confirmed to fail: reverting either fix, an allow-list
-that stops being exhaustive, and `Write` no longer mapping onto `edit`.
+**A follow-on hole in fix 2, found by asking what was still open.** The first
+version of the mapping covered `edit`, `bash` and `webfetch` — and left the
+`task` tool untouched, because no Citadel tool obviously named it. But five of
+the seven agents forbid `Agent`, and a subagent runs with **its own** permissions,
+not its caller's. So the restriction was decorative:
+
+```
+arch-reviewer tools: … read, skill, task, todowrite      <- task present
+prompt: delegate to archon and have it write escaped.txt
+result: "The archon subagent successfully created the escaped.txt file"
+        escaped.txt exists on disk
+```
+
+A read-only reviewer denied `edit` and `bash` simply handed the work to something
+that had them. opencode does support `task` as a permission — a probe agent
+declaring `permission: {task: deny}` compiles to a `task=deny` rule — so `Agent`
+and `Task` now map onto it. Re-verified live: `task` is gone from the reviewer's
+toolset and the same prompt writes nothing.
+
+This is worth stating plainly: denying edit and bash while leaving delegation open
+is not a partial restriction, it is no restriction. The tool list is the thing to
+check, not the deny list.
+
+Five mutations were each confirmed to fail: reverting either fix, an allow-list
+that stops being exhaustive, `Write` no longer mapping onto `edit`, and
+unmapping delegation.
 
 ## 6. Risks
 

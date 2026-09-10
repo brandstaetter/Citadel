@@ -233,21 +233,21 @@ function testAgentToolRestrictionsProject() {
       tools: ['Read', 'Grep', 'Glob'],
       disallowedTools: ['Edit', 'Write', 'Bash', 'NotebookEdit'],
     }),
-    { edit: 'deny', bash: 'deny', webfetch: 'deny' },
-    'a read-only reviewer must deny edit, bash and webfetch',
+    { edit: 'deny', bash: 'deny', webfetch: 'deny', task: 'deny' },
+    'a read-only reviewer must deny edit, bash, webfetch and delegation',
   );
 
   // An allow-list is exhaustive on its own: anything unnamed is not granted.
   assert.deepStrictEqual(
     opencodePermissionsFor({ tools: ['Read', 'Grep', 'Glob'] }),
-    { edit: 'deny', bash: 'deny', webfetch: 'deny' },
+    { edit: 'deny', bash: 'deny', webfetch: 'deny', task: 'deny' },
     'an allow-list alone must still withhold what it does not name',
   );
 
   // ...but it must not over-deny what it does grant.
   assert.deepStrictEqual(
     opencodePermissionsFor({ tools: ['Read', 'Glob', 'Grep', 'Bash'] }),
-    { edit: 'deny', webfetch: 'deny' },
+    { edit: 'deny', webfetch: 'deny', task: 'deny' },
     'a tool the allow-list grants must not be denied',
   );
 
@@ -261,7 +261,7 @@ function testAgentToolRestrictionsProject() {
   // An unrestricted agent must not gain a permission block it never had.
   assert.deepStrictEqual(opencodePermissionsFor({}), {}, 'no restrictions means no permission block');
   assert.deepStrictEqual(
-    opencodePermissionsFor({ tools: ['Read', 'Write', 'Edit', 'Bash', 'WebFetch'] }),
+    opencodePermissionsFor({ tools: ['Read', 'Write', 'Edit', 'Bash', 'WebFetch', 'Agent'] }),
     {},
     'an agent granted everything gets no permission block',
   );
@@ -272,6 +272,25 @@ function testAgentToolRestrictionsProject() {
     opencodePermissionsFor({ disallowedTools: ['Write'] }),
     { edit: 'deny' },
     'Write must map onto opencode edit, which is what actually gates it',
+  );
+
+  // Delegation is the escape hatch. Proven live before this was added: a
+  // read-only arch-reviewer denied edit and bash used `task` to ask archon to
+  // write a file, and the file appeared on disk.
+  assert.equal(
+    opencodePermissionsFor({ disallowedTools: ['Agent'] }).task,
+    'deny',
+    'an agent forbidden to delegate must not keep opencode task',
+  );
+  assert.equal(
+    opencodePermissionsFor({ tools: ['Read'] }).task,
+    'deny',
+    'an allow-list that does not grant delegation must withhold it',
+  );
+  assert.equal(
+    opencodePermissionsFor({ tools: ['Read', 'Agent'] }).task,
+    undefined,
+    'an agent granted delegation must keep it',
   );
 
   // And it has to survive into the rendered frontmatter, which is the thing
@@ -290,6 +309,7 @@ function testAgentToolRestrictionsProject() {
   assert.match(rendered, /^ {2}edit: deny$/m);
   assert.match(rendered, /^ {2}bash: deny$/m);
   assert.match(rendered, /^ {2}webfetch: deny$/m);
+  assert.match(rendered, /^ {2}task: deny$/m);
   // The block belongs to the frontmatter, not the body.
   const frontmatterOf = rendered.split('---')[1] || '';
   assert.match(frontmatterOf, /permission:/, 'the permission block must be inside the frontmatter');
@@ -310,6 +330,9 @@ function testAgentToolRestrictionsProject() {
     const permissions = opencodePermissionsFor(frontmatter);
     assert.equal(permissions.edit, 'deny', `${name} must not be able to edit on opencode`);
     assert.equal(permissions.bash, 'deny', `${name} must not be able to run shell on opencode`);
+    // Without this every other deny is decorative: a subagent runs with its own
+    // permissions, so delegation hands the work to something unrestricted.
+    assert.equal(permissions.task, 'deny', `${name} must not be able to delegate around its own limits on opencode`);
   }
 }
 

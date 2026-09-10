@@ -292,8 +292,13 @@ Citadel agents declare tool access with a `tools` allow-list and a
 `disallowedTools` deny-list. opencode has no such field, so the projection
 translates them into its native `permission` map: `Edit`, `Write`, `MultiEdit`
 and `NotebookEdit` map onto opencode's `edit` (it has no separate write
-permission), `Bash` onto `bash`, and `WebFetch`/`WebSearch` onto `webfetch`. An
-allow-list is treated as exhaustive — anything it does not grant is denied.
+permission), `Bash` onto `bash`, `WebFetch`/`WebSearch` onto `webfetch`, and
+`Agent`/`Task` onto `task`. An allow-list is treated as exhaustive — anything it
+does not grant is denied.
+
+`task` matters more than it looks: a subagent runs with its own permissions, not
+its caller's, so an agent that can delegate can have someone else do whatever it
+is forbidden to do itself.
 
 So `arch-reviewer` projects with:
 
@@ -302,6 +307,7 @@ permission:
   edit: deny
   bash: deny
   webfetch: deny
+  task: deny
 ```
 
 opencode withholds those tools from the agent entirely rather than refusing the
