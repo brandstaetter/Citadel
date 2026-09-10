@@ -1,5 +1,30 @@
 # Changelog
 
+## 1.3.7 - 2026-09-10
+
+### Fixed
+
+- Package fixes-only changelogs without requiring feature or verification headings.
+- Finish the portable Claude executable cleanup reported by Hannes Brandstaetter-Mueller in #278, and remove a machine-specific MCP setup example.
+- Restore the read-only health delegate omitted from the restricted utility list.
+- Run upgrade-time coordination cleanup from the current plugin instead of a stale project delegate.
+- Add regression coverage for release-version consistency, older project state, relocated plugin roots, and delegates in ES-module projects.
+
+## 1.3.6 - 2026-09-10
+
+### Added
+
+- Preserve native permissions in local schedules, daemon sessions and default Claude forks.
+- Require explicit local execution state, bound daemon sessions and estimated spend, and make new schedule records revocable.
+- Make worktree creation report readiness without installing packages or copying secrets.
+- Reject the unused Codex hook-trust bypass option, restrict generated delegates, and keep intake titles and filenames out of SessionStart context.
+- Replace the machine-specific PowerShell daemon loop with the shared safe runner.
+- Document removal and recreation of legacy schedules, which retain their stored commands after an update.
+### Verification
+
+- Security regression suites cover permission defaults, scheduled job revocation, bounded execution, secret isolation, delegate retirement and intake context.
+- Thanks to Hannes Brandstätter-Müller (@brandstaetter) for the audit report in #278.
+
 All notable Citadel changes are recorded here. Citadel follows semantic versioning.
 
 ## 1.3.5 - 2026-08-13

@@ -97,6 +97,7 @@
     "scripts/stack-plan.js",
     "scripts/state-hygiene.js",
     "scripts/telemetry-log.cjs",
+    "scripts/health.js",
     "scripts/telemetry-stats.js",
     "scripts/unharness.js",
     "scripts/update.js",

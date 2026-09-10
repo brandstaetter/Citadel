@@ -124,9 +124,11 @@ try {
     { name: 'package.json', data: Buffer.from('{"version":"1.3.0"}') },
     {
       name: 'CHANGELOG.md',
-      data: Buffer.from('## 1.3.0 - 2026-08-12\n\n### Added\n\n- Release feature.\n\n### Verification\n\n- Verified.\n'),
+      data: Buffer.from('## 1.3.0 - 2026-08-12\n\n### Added\n\n- Release feature.\n\n### Verification\n\n- Verified.\n\n## 1.2.0 - 2026-08-11\n\nHistorical source-only docs/SHOWCASE.md\n'),
     },
   ], new Set()).find((entry) => entry.name === 'CHANGELOG.md').data.toString('utf8');
+  assert(!projectedDatedChangelog.includes('SHOWCASE.md'), 'historical source-only notes must not leak into the current slim release');
+  assert(projectedDatedChangelog.includes('Verified.'), 'current verification notes must remain');
   assert(projectedDatedChangelog.startsWith('## 1.3.0\n'),
     'release projection accepts an exact ISO-dated current changelog heading');
   assert.throws(
@@ -140,6 +142,18 @@ try {
     /exactly one current version heading/,
     'release projection rejects a dated changelog heading for a different version',
   );
+
+  for (const notes of [
+    '### Fixed\n\n- Patch correction.\n',
+    '### Added\n\n- New feature.\n\n### Fixed\n\n- Patch correction.\n',
+  ]) {
+    const projected = sanitizeReleaseInstructions([
+      { name: 'package.json', data: Buffer.from('{"version":"1.3.7"}') },
+      { name: 'CHANGELOG.md', data: Buffer.from('## 1.3.7 - 2026-09-10\n\n' + notes) },
+    ], new Set()).find(entry => entry.name === 'CHANGELOG.md').data.toString('utf8');
+    assert(projected.includes('Patch correction.'), 'patch notes must survive without Added or Verification headings');
+    assert(projected.includes('Included consumer surface'));
+  }
 
   const source = path.join(temp, 'source');
   makeSource(source);
@@ -355,6 +369,8 @@ try {
     fs.writeFileSync(destination, data);
   }
   const productRoot = path.join(extracted, `citadel-${product.manifest.version}`);
+  const healthOutput = execFileSync(process.execPath, [path.join(productRoot, 'scripts', 'health.js')], { cwd: productRoot, encoding: 'utf8' });
+  assert(JSON.parse(healthOutput).timestamp, 'packaged health diagnostic must execute with packaged dependencies');
   const runbookAnchors = new Map();
   const assertRunbookReference = (relative, match) => {
     const runbook = match[1];

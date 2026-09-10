@@ -38,12 +38,19 @@ cap; every fire of the scheduled task counts. See
 ### Default flow — `/schedule add "<expr>" "<command>"` (no `--remote`)
 Run:
 ```bash
-node scripts/local-schedule.js add "<expr>" "<command>"
+node scripts/local-schedule.js add "<expr>" "<command>" --confirm
 ```
+Before running, show the cadence, project, prompt and persistence and obtain
+approval to create the OS task. Normal Claude permissions remain enabled. Do not
+add a bypass flag to make unattended execution succeed.
+
 Then report the returned ID and the removal command. This survives session
 end, machine reboot, and consumes zero routine quota. Use
 `/schedule list` and `/schedule remove {id}` (which also shell out to
-`local-schedule.js`) by default.
+`local-schedule.js`) by default. Remove tasks before uninstalling. New jobs require
+their `.citadel/schedules/<id>.json` record; deleting it disables execution but leaves
+an inert OS entry. Existing jobs retain their old bypass flags until explicitly
+removed and recreated. See [runner safety and migration](../../docs/ISSUE-278-SECURITY.md).
 
 ### Codex automation lane
 

@@ -609,12 +609,9 @@ worktree for a fleet agent.
 **What it's for:** Initialize per-agent environment before the agent starts working
 in the worktree.
 
-**Citadel use:** `worktree-setup.js` - scaffolds the worktree with Citadel
-infrastructure: creates `.citadel/` directory, writes a `plugin-root.txt` pointing
-back to the Citadel install, creates delegate scripts in `.citadel/scripts/` so
-fleet agents can log telemetry from their isolated worktree. This is what enables
-fleet agents in separate worktrees to still write to the shared `.planning/telemetry/`
-directory via delegates that resolve the real Citadel root.
+**Citadel use:** `worktree-setup.js` records dependency, environment, port and
+health readiness. It does not install packages, create a virtual environment or
+copy secrets. Resolve missing resources separately through normal approval.
 
 ---
 

@@ -41,7 +41,7 @@ const SOURCE_FILES = Object.freeze([
   'core/public-holdout/artifacts.js',
   'core/public-holdout/dataset.js',
   'core/public-holdout/retrieval.js',
-  'core/public-holdout/runner.js',
+  'core/forks/claude-launcher.js', 'core/forks/launcher.js', 'core/public-holdout/runner.js',
   'core/public-holdout/selection.js',
   'core/public-holdout/statistics.js',
   'core/public-holdout-pilot/artifacts.js',

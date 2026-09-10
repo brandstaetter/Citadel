@@ -72,7 +72,7 @@ Claude accepts only:
 
 | Option | Contract |
 |---|---|
-| `permission_mode` | Optional `acceptEdits`, `auto`, `manual`, `dontAsk`, or `plan`; defaults to `acceptEdits` |
+| `permission_mode` | Optional `default`, `acceptEdits`, `auto`, `manual`, `dontAsk`, or `plan`; defaults to `default` |
 | `effort` | Optional `low`, `medium`, `high`, `xhigh`, or `max` |
 
 Claude advertises `bypassPermissions`, but Citadel rejects it because it
@@ -95,16 +95,16 @@ and invalid values are rejected.
 Argument order is part of the contract. Omitted profile values do not create
 arguments.
 
-Claude begins with the configured permission mode, or `acceptEdits` by default:
+Claude begins with the configured permission mode, or `default` by default:
 
 ```text
-claude --print --output-format json --permission-mode acceptEdits
+claude --print --output-format json --permission-mode default
 ```
 
-Citadel also supplies a fixed `--allowedTools` policy that permits repository
-reads, edits, Node/npm verification, and read-only git inspection while denying
-branch, commit, reset, clean, and worktree mutation. Citadel then appends `--model <model>` when a model is present and
-`--effort <effort>` when configured.
+Citadel supplies `Read,Glob,Grep` as the fixed `--allowedTools` policy. Edits and
+command execution remain subject to native runtime permissions; no Node, npm,
+npx or Git wildcard is automatically approved. Explicit profile permission modes
+remain supported. Citadel appends `--model <model>` and `--effort <effort>` when configured.
 
 Codex begins with:
 

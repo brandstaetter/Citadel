@@ -36,10 +36,10 @@ function main() {
   } catch (err) {
     // Non-critical hook: log the error but don't block the session
     hookOutput('intake-scanner', 'error',
-      `[intake-scanner] Could not scan intake directory: ${err.message || 'unknown error'}. ` +
+      `[intake-scanner] Could not scan intake directory. ` +
       `This is non-critical — your session will continue normally. ` +
       `If this persists, check that .planning/intake/ exists and contains valid .md files.`,
-      { error: err.message || 'unknown error' }
+      {}
     );
     process.exit(0); // Non-critical: allow session to continue
   }
@@ -94,20 +94,18 @@ function run() {
     } catch (err) {
       // Skip unreadable files rather than crashing
       hookOutput('intake-scanner', 'warned',
-        `[intake-scanner] Could not read ${file}: ${err.message}. Skipping.`,
-        { file, error: err.message }
+        '[intake-scanner] Could not read an intake item. Skipping.',
+        {}
       );
       continue;
     }
-    const titleMatch = content.match(/^title:\s*"?(.+?)"?\s*$/m);
-    const statusMatch = content.match(/^status:\s*(\w+)/m);
+    const statusMatch = content.match(/^status:[ \t]*(pending|in-progress|briefed|completed|archived)[ \t]*$/m);
     const status = statusMatch ? statusMatch[1] : 'pending';
 
     if (status === 'completed' || status === 'archived') continue;
 
     items.push({
       file: file.replace('.md', ''),
-      title: titleMatch ? titleMatch[1] : file.replace('.md', '').replace(/-/g, ' '),
       status,
     });
   }
@@ -123,20 +121,16 @@ function run() {
     process.exit(0);
   }
 
-  const lines = ['[Intake] Work items detected:'];
+  // Titles and filenames are untrusted repository content. Do not inject them
+  // into SessionStart instructions, including structured UI metadata.
+  const lines = ['[Intake] Work items detected (counts only; no actions authorized):'];
 
   if (pending.length > 0) {
     lines.push(`  ${pending.length} pending:`);
-    for (const item of pending) {
-      lines.push(`    → ${item.file}: "${item.title}"`);
-    }
   }
 
   if (inProgress.length > 0) {
     lines.push(`  ${inProgress.length} in progress:`);
-    for (const item of inProgress) {
-      lines.push(`    → ${item.file}: "${item.title}" [${item.status}]`);
-    }
   }
 
   if (stagedCount > 0) {
@@ -147,8 +141,8 @@ function run() {
   lines.push('  Run /do status for details, or /autopilot to process pending items.');
 
   hookOutput('intake-scanner', 'allowed', lines.join('\n'), {
-    pending: pending.map(i => i.file),
-    inProgress: inProgress.map(i => i.file),
+    pendingCount: pending.length,
+    inProgressCount: inProgress.length,
   });
   process.exit(0);
 }

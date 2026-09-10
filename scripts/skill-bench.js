@@ -85,6 +85,7 @@ const CODEX_SERVICE_TIER = getArgValue('--codex-service-tier') || process.env.CI
  *   behavior        — invariant | implementation (default: invariant)
  *   assert-contains — YAML list: patterns that MUST appear in output (case-insensitive substring)
  *   assert-not-contains — YAML list: patterns that must NOT appear in output
+ *   assert-files-absent — project-relative paths that must not exist after execution
  *   timeout         — milliseconds before giving up (default: 180000)
  *   skip-execute    — true: skip in execute mode (not a failure); for external services or agent spawning
  *   skip-reason     — why skip-execute is set: requires-agent-spawn | requires-web-search | requires-github-pr | requires-playwright | requires-ui-codebase | interactive-setup
@@ -173,6 +174,7 @@ function parseScenario(filePath) {
     behavior:         fm.behavior || 'invariant',
     assertContains:    Array.isArray(fm['assert-contains'])     ? fm['assert-contains']     : [],
     assertNotContains: Array.isArray(fm['assert-not-contains']) ? fm['assert-not-contains'] : [],
+    assertFilesAbsent: Array.isArray(fm['assert-files-absent']) ? fm['assert-files-absent'] : [],
     timeout:          parseInt(fm.timeout, 10) || 180000,
     skipExecute:      fm['skip-execute'] === 'true' || fm['skip-execute'] === true,
     skipReason:       fm['skip-reason'] || null,
@@ -610,7 +612,7 @@ let _codexCmd = undefined;
 function findClaudeCLI() {
   if (_claudeCmd !== undefined) return _claudeCmd;
 
-  const candidates = ['claude', 'claude.exe', 'npx claude'];
+  const candidates = ['claude', 'claude.exe'];
   for (const cmd of candidates) {
     try {
       const [bin, ...binArgs] = cmd.split(' ');
@@ -649,7 +651,7 @@ function executeClaudeScenario(scenario, claudeCmd, tmpDir) {
   try {
     const output = execFileSync(
       bin,
-      [...binArgs, '--plugin-dir', PLUGIN_ROOT, '--print', '--dangerously-skip-permissions', scenario.input],
+      [...binArgs, '--plugin-dir', PLUGIN_ROOT, '--print', '--permission-mode', 'default', '--', scenario.input],
       {
         cwd: tmpDir,
         timeout: scenario.timeout,
@@ -725,7 +727,7 @@ function executeCodexScenario(scenario, codexCmd, tmpDir) {
  * Run all assertions against the captured output.
  * Returns array of { assertion, passed, type }
  */
-function runAssertions(scenario, output) {
+function runAssertions(scenario, output, projectRoot) {
   const results = [];
   const lowerOutput = output.toLowerCase();
 
@@ -739,6 +741,13 @@ function runAssertions(scenario, output) {
     results.push({ assertion: `not-contains: "${pattern}"`, passed, type: 'not-contains' });
   }
 
+  for (const relative of scenario.assertFilesAbsent || []) {
+    const safe = typeof relative === 'string' && relative.length > 0 &&
+      !path.isAbsolute(relative) && !path.win32.isAbsolute(relative) &&
+      !relative.split(/[\\/]/).includes('..');
+    const passed = Boolean(safe && projectRoot && !fs.existsSync(path.join(projectRoot, relative)));
+    results.push({ assertion: 'file absent: ' + relative, passed, type: 'file-absent' });
+  }
   return results;
 }
 
@@ -913,6 +922,17 @@ function main() {
       try {
         tmpDir = setupProjectState(scenario.state);
         if (isCodexRuntime) setupCodexProjectRuntime(tmpDir);
+        // Explicit execution selects a skill. Enable its product bundle only in
+        // this disposable fixture, using the same governed CLI as an operator.
+        const bundle = require('../core/config/bundle-catalog').bundleForSkill(scenario.skill);
+        if (bundle) {
+          execFileSync(process.execPath, [path.join(PLUGIN_ROOT, 'scripts/citadel-config.js'),
+            'enable', bundle, '--project-root', tmpDir, '--runtime', isCodexRuntime ? 'codex' : 'claude-code',
+            '--allow-degraded-runtime', '--apply', '--json'], {
+            cwd: tmpDir, encoding: 'utf8', stdio: 'pipe', timeout: 30000,
+            env: { ...process.env, CLAUDE_PROJECT_DIR: tmpDir },
+          });
+        }
         const telemetryBefore = VERIFY_HOOKS ? snapshotTelemetry(tmpDir) : null;
         const execResult = isCodexRuntime
           ? executeCodexScenario(scenario, runtimeCmd, tmpDir)
@@ -928,7 +948,7 @@ function main() {
             executionError: `timed out after ${scenario.timeout}ms`,
             assertionResults: [],
           };
-        } else if (execResult.error && !execResult.output) {
+        } else if (execResult.error) {
           result = {
             scenario: scenario.name,
             skill:    scenario.skill,
@@ -939,7 +959,7 @@ function main() {
             assertionResults: [],
           };
         } else {
-          const assertionResults = runAssertions(scenario, execResult.output);
+          const assertionResults = runAssertions(scenario, execResult.output, tmpDir);
 
           // Hook telemetry assertions (--verify-hooks mode)
           if (VERIFY_HOOKS && telemetryBefore) {
