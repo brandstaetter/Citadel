@@ -1,7 +1,7 @@
 # opencode Runtime Support — Investigation and Plan
 
 Date: 2026-09-10
-Status: phases 1-5 landed and live-verified on opencode 1.18.30 / Bun 1.4.2; phase 6 optional
+Status: phases 1-5 landed and live-verified on opencode 1.18.30 / Bun 1.4.2, with all three phase-5 follow-ups closed; phase 6 optional
 
 Verified against the opencode source at `anomalyco/opencode@dev` (shallow clone,
 2026-09-10), specifically `packages/plugin/src/index.ts`,
@@ -31,7 +31,7 @@ Non-hook surfaces are close to free:
 
 | Surface | opencode native path | Citadel work |
 |---|---|---|
-| Guidance | `AGENTS.md`, then `CLAUDE.md` (`session/instruction.ts:61-68`) | none — reuse Codex's `AGENTS.md` renderer |
+| Guidance | `AGENTS.md`, then `CLAUDE.md` (`session/instruction.ts:61-68`) | **its own renderer.** This row first said "reuse Codex's `AGENTS.md` renderer"; both target `AGENTS.md`, but the Codex output calls itself the Codex projection and tells the reader to invoke skills as `$skill-name`, which is wrong for opencode. Rendered from `.citadel/project.md`, never overwriting an existing file |
 | Skills | also every path in `skills.paths`, scanned `**/SKILL.md` (`skill/index.ts:211-219`) | **one config key.** This row first claimed "none — opencode reads Citadel's existing `.claude/skills/` projection directly", which phase 5 disproved: no such projection exists. Resolved by adding `<citadel>/skills` to `skills.paths` in `opencode.json`, so all 48 are discovered from the checkout with nothing copied. Needs opencode >= 1.18.30 |
 | Agents | `.opencode/{agent,agents}/**/*.md` (`config/agent.ts:13`) | thin projector, mirror `runtimes/codex/generators/project-agents.js` |
 | Commands | `.opencode/{command,commands}/**/*.md` | none — opencode registers every discovered skill as a command (`command/index.ts:134`), and an explicit command file *shadows* the skill, so projecting would risk overriding the live one |
@@ -608,13 +608,31 @@ a full opencode restart picked it up. Installing Citadel into a project while
 opencode is running therefore leaves the session ungated with no error. The
 installation guide says to restart.
 
-**Guidance has the same gap as skills, and the readiness check cannot pass.**
-`runtimes/opencode/guidance/render.js` exists and exports a working
-`OPENCODE_GUIDANCE_TARGET`, but `opencode-install.js` never invokes it — section
-1 and the installer both file guidance under "no projection". Rendering it would
-also need a `.citadel/project.md` spec, which the opencode install path does not
-create: the scratch project's `.citadel/` held only `plugin-root.txt`, `scripts/`
-and `version.txt`. The renderer is therefore currently unreachable code.
+**Guidance had the same gap as skills, and the readiness check could not pass.**
+`runtimes/opencode/guidance/render.js` exported a working
+`OPENCODE_GUIDANCE_TARGET`, but `opencode-install.js` never invoked it — section 1
+and the installer both filed guidance under "no projection". Rendering it also
+needed a `.citadel/project.md` spec the opencode install path did not create.
+
+*Resolved after phase 5.* A new `generators/project-guidance.js` renders
+`AGENTS.md`, reusing `ensureProjectSpec` from the shared bootstrap so the spec is
+created the same way on every runtime. It writes only `AGENTS.md` — unlike
+`bootstrap-project-guidance.js`, which also writes `CLAUDE.md`; an opencode
+install has no business creating that.
+
+Two things the "unreachable code" framing missed. First, the renderer was not
+merely dead, it was **wrong**: a re-export of the Codex renderer, whose output
+announces itself as "the Codex-facing projection", carries a "## Codex Notes"
+section, and instructs the reader to use `$skill-name` — while phase 5 verified
+opencode registers skills as `/` commands. Wiring it in unchanged would have
+handed opencode users a misleading file, so it was rewritten rather than simply
+called. Second, an existing `AGENTS.md` must not be touched: it is opencode's
+primary guidance file and is often hand-written, so the generator skips it unless
+`--overwrite-guidance` is passed, and a test asserts the existing bytes survive.
+
+With this, a default install passes all eight readiness checks — `READY.` with no
+advisory gaps — and `--strict` passes too. `--skip-guidance` and `--skip-skills`
+each produce a WARN that `--strict` refuses.
 
 The consequence is worth stating plainly: `opencode-readiness-check.js` asserted
 `guidance file present` and `skills discoverable by opencode`, and the installer
@@ -646,9 +664,11 @@ the case where every advisory check should also pass.
 observations. Items 1-3 pass, so `hooks: partial` stands unchanged;
 `shell-endpoint-not-gated` and `plugin-discovery-requires-restart` were added to
 the runtime contract's `degradations`, which was the only code change this phase
-made. The skills gap (7), the guidance gap, and the readiness-check
-contradiction are the follow-ups this phase surfaced; none blocks the runtime,
-and all are documented.
+made. The skills gap (7), the guidance gap, and the readiness-check contradiction
+were the three follow-ups this phase surfaced; **all three are now closed** — see
+the resolution notes above. A default install passes all eight readiness checks.
+The runtime contract itself was unchanged by those fixes beyond the two
+degradations this phase added.
 
 **Phase 6 (optional) — Stop recovery.** Deferred gate injection via
 `chat.message`; re-prompt via `ctx.client` behind a config flag and a

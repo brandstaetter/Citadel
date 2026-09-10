@@ -26,7 +26,11 @@ const {
   renderOpencodeAgent,
   yamlString,
 } = require(path.join(CITADEL_ROOT, 'runtimes', 'opencode', 'generators', 'project-agents'));
-const { OPENCODE_GUIDANCE_TARGET } = require(path.join(CITADEL_ROOT, 'runtimes', 'opencode', 'guidance', 'render'));
+const {
+  OPENCODE_GUIDANCE_TARGET,
+  renderOpencodeGuidance,
+} = require(path.join(CITADEL_ROOT, 'runtimes', 'opencode', 'guidance', 'render'));
+const { projectOpencodeGuidance } = require(path.join(CITADEL_ROOT, 'runtimes', 'opencode', 'generators', 'project-guidance'));
 
 // Deliberately bare. An earlier version of this fixture hand-created AGENTS.md
 // and .claude/skills/do/SKILL.md and then asserted that the readiness check
@@ -178,11 +182,96 @@ function testYamlQuoting() {
   assert.equal(line, 'description: "a: b # c \\"d\\"\\nnext"');
 }
 
+const SPEC_FIXTURE = Object.freeze({
+  version: 1,
+  project: { name: 'Demo', summary: 'A demo project.' },
+  conventions: ['convention one'],
+  workflows: ['workflow one'],
+  constraints: ['constraint one'],
+});
+
 function testGuidanceTarget() {
-  // opencode reads AGENTS.md then CLAUDE.md, so Citadel projects no new file.
   assert.equal(OPENCODE_GUIDANCE_TARGET.filePath, 'AGENTS.md');
   assert.equal(OPENCODE_GUIDANCE_TARGET.runtime, 'opencode');
   assert.equal(typeof OPENCODE_GUIDANCE_TARGET.render, 'function');
+
+  const rendered = renderOpencodeGuidance(SPEC_FIXTURE);
+  assert(rendered.includes('# Demo'), 'the project name must head the file');
+  assert(rendered.includes('A demo project.'));
+  for (const item of ['convention one', 'workflow one', 'constraint one']) {
+    assert(rendered.includes(`- ${item}`), `${item} must be rendered`);
+  }
+
+  // This renderer used to be a re-export of the Codex one, whose output announces
+  // itself as the Codex projection and tells the reader to invoke skills as
+  // `$skill-name`. opencode exposes them as `/` commands, so Codex wording here
+  // would actively mislead an opencode agent.
+  assert(!/Codex/i.test(rendered), 'no Codex wording may leak into opencode guidance');
+  assert(!rendered.includes('$skill-name'), 'opencode skills are / commands, not $ invocations');
+  assert(rendered.includes('`/` slash commands'), 'the real invocation syntax must be stated');
+
+  // The degradations an agent working in the project needs to know about.
+  assert(rendered.includes('`!` prefix'), 'the ungated shell must be called out');
+  assert(/stop event cannot block/i.test(rendered));
+  assert(/fails to load/i.test(rendered), 'the fail-open must be stated');
+
+  // Readers must be pointed at the spec, not at the generated file.
+  assert(rendered.includes('.citadel/project.md'));
+}
+
+// An existing AGENTS.md is the project's own and opencode's primary guidance file.
+// Replacing it would silently change how every agent behaves there, so it is only
+// overwritten on explicit request.
+function testGuidanceNeverClobbers() {
+  const root = scratchProject();
+  try {
+    const mine = '# Hand written\nKeep me.\n';
+    const filePath = path.join(root, 'AGENTS.md');
+    fs.writeFileSync(filePath, mine);
+
+    const kept = projectOpencodeGuidance({ citadelRoot: CITADEL_ROOT, projectRoot: root });
+    assert.equal(kept.written, false);
+    assert.equal(kept.skipped, true);
+    assert.match(kept.reason, /--overwrite-guidance/);
+    assert.equal(fs.readFileSync(filePath, 'utf8'), mine, 'the existing file must be byte-identical');
+
+    const replaced = projectOpencodeGuidance({
+      citadelRoot: CITADEL_ROOT,
+      projectRoot: root,
+      overwriteGuidance: true,
+    });
+    assert.equal(replaced.written, true);
+    assert.notEqual(fs.readFileSync(filePath, 'utf8'), mine);
+    assert(fs.readFileSync(filePath, 'utf8').includes('Citadel Project Guidance'));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+// The renderer needs a spec, so the generator bootstraps the canonical one rather
+// than inventing its own copy. A dry run must still create nothing.
+function testGuidanceBootstrapsSpec() {
+  const root = scratchProject();
+  try {
+    const dry = projectOpencodeGuidance({ citadelRoot: CITADEL_ROOT, projectRoot: root, dryRun: true });
+    assert.equal(dry.written, false);
+    assert.equal(dry.action, 'create');
+    assert.equal(fs.existsSync(path.join(root, 'AGENTS.md')), false, 'a dry run must not write AGENTS.md');
+    assert.equal(fs.existsSync(path.join(root, '.citadel', 'project.md')), false, 'a dry run must not write the spec');
+
+    const written = projectOpencodeGuidance({ citadelRoot: CITADEL_ROOT, projectRoot: root });
+    assert.equal(written.written, true);
+    assert.equal(written.specCreated, true, 'the canonical spec must be bootstrapped');
+    assert(fs.existsSync(written.specPath), 'the spec must exist on disk');
+    // The project name comes from the bootstrapped spec, not a hardcoded default.
+    assert(fs.readFileSync(written.filePath, 'utf8').startsWith(`# ${path.basename(root)}`));
+
+    // Writing again is not an error, it just preserves what is there.
+    const second = projectOpencodeGuidance({ citadelRoot: CITADEL_ROOT, projectRoot: root });
+    assert.equal(second.skipped, true);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 }
 
 // Commands are deliberately not projected: opencode registers every discovered
@@ -219,8 +308,19 @@ function testInstallerCli(root) {
 // installer guarantees is REQUIRED; the things it deliberately does not write are
 // ADVISORY, reported but not fatal. Before this split, `opencode:verify` exited 1
 // on a fresh correct install, which teaches operators to ignore the tool.
-async function testReadinessOnBareInstall(root) {
+async function testReadinessOnBareInstall() {
   const readiness = require(path.join(CITADEL_ROOT, 'scripts', 'opencode-readiness-check'));
+  const install = require(path.join(CITADEL_ROOT, 'scripts', 'opencode-install'));
+
+  // Run the real installer entry point rather than the individual generators, so
+  // this asserts what a user actually gets from `opencode-install.js` with no
+  // flags. Calling the generators piecemeal is how the test drifted from the
+  // installer before and hid a gap for a phase.
+  const root = scratchProject();
+  try {
+  const installed = install.run(['--project-root', root]);
+  assert.equal(installed.ok, true, 'the default install must succeed');
+
   const checks = await readiness.collect(root);
 
   const blocking = checks.filter((item) => !item.pass && item.severity === readiness.REQUIRED);
@@ -230,33 +330,43 @@ async function testReadinessOnBareInstall(root) {
   );
   assert.equal(readiness.summarize(checks).ok, true, 'a bare correct install must be READY');
 
-  // The known gaps must still be reported — downgrading them to advisory must not
-  // mean hiding them — and each must carry a remedy.
-  // Only guidance remains advisory-failing on a default install: skills are now
-  // wired through skills.paths, and agents are projected. Guidance is genuinely
-  // the project's to author — Citadel writes none.
+  // A default install leaves nothing advisory failing either: guidance is rendered,
+  // skills are wired through skills.paths, agents are projected. So it is fully
+  // READY, including under --strict.
   const warnings = checks.filter((item) => !item.pass && item.severity === readiness.ADVISORY);
-  const names = warnings.map((item) => item.name).sort();
-  assert.deepStrictEqual(names, ['guidance file present']);
-  for (const item of warnings) {
-    assert(item.remedy, `${item.name} must tell the operator what to do`);
-    assert.equal(readiness.statusOf(item), 'WARN');
-  }
+  assert.deepStrictEqual(warnings.map((item) => item.name), []);
+  assert.equal(readiness.summarize(checks, { strict: true }).ok, true, 'a default install must pass --strict');
 
-  // --strict exists so CI can refuse the advisory gaps.
-  assert.equal(readiness.summarize(checks, { strict: true }).ok, false, '--strict must fail on advisory gaps');
+  // --strict still has teeth: opting out of a projection produces an advisory gap
+  // that it refuses. Exercised with a real --skip flag rather than by hand.
+  const optedOut = scratchProject();
+  try {
+    install.run(['--project-root', optedOut, '--skip-guidance', '--skip-skills']);
+    const partial = await readiness.collect(optedOut);
+    assert.equal(readiness.summarize(partial).ok, true, 'opting out must not be a required failure');
+    const optedOutWarnings = partial.filter((item) => !item.pass && item.severity === readiness.ADVISORY);
+    assert.deepStrictEqual(
+      optedOutWarnings.map((item) => item.name).sort(),
+      ['guidance file present', 'skills discoverable by opencode'],
+    );
+    for (const item of optedOutWarnings) {
+      assert(item.remedy, `${item.name} must tell the operator what to do`);
+      assert.equal(readiness.statusOf(item), 'WARN');
+    }
+    assert.equal(readiness.summarize(partial, { strict: true }).ok, false, '--strict must refuse advisory gaps');
+  } finally {
+    fs.rmSync(optedOut, { recursive: true, force: true });
+  }
 
   // A genuinely broken install is still a hard failure.
   const stub = path.join(root, '.opencode', 'plugin', PLUGIN_STUB_NAME);
-  const saved = fs.readFileSync(stub, 'utf8');
   fs.rmSync(stub);
-  try {
-    const broken = await readiness.collect(root);
-    const brokenBlocking = broken.filter((item) => !item.pass && item.severity === readiness.REQUIRED);
-    assert.deepStrictEqual(brokenBlocking.map((item) => item.name), ['plugin stub present']);
-    assert.equal(readiness.summarize(broken).ok, false, 'a missing plugin stub must be NOT READY');
+  const broken = await readiness.collect(root);
+  const brokenBlocking = broken.filter((item) => !item.pass && item.severity === readiness.REQUIRED);
+  assert.deepStrictEqual(brokenBlocking.map((item) => item.name), ['plugin stub present']);
+  assert.equal(readiness.summarize(broken).ok, false, 'a missing plugin stub must be NOT READY');
   } finally {
-    fs.writeFileSync(stub, saved, 'utf8');
+    fs.rmSync(root, { recursive: true, force: true });
   }
 }
 
@@ -345,6 +455,8 @@ async function main() {
   testSkillsPathMerge();
   testYamlQuoting();
   testGuidanceTarget();
+  testGuidanceNeverClobbers();
+  testGuidanceBootstrapsSpec();
 
   const root = scratchProject();
   try {
@@ -356,7 +468,7 @@ async function main() {
     testNoCommandProjection(root);
 
     await testSkillsReadiness();
-    await testReadinessOnBareInstall(root);
+    await testReadinessOnBareInstall();
     await testReadinessOnFurnishedInstall();
 
     console.log('opencode install tests pass.');

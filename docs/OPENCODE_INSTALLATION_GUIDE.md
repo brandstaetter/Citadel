@@ -68,9 +68,9 @@ PASS  pre-tool gate blocks a .env read
 Confirm the resolved Node path is a **real Node**, not Bun. Override with
 `CITADEL_NODE=/path/to/node` if the probe picks the wrong one.
 
-`guidance file present` is the one advisory gap on a bare project: opencode reads
-`AGENTS.md`/`CLAUDE.md` natively but this installer writes neither, so it is yours
-to author.
+A default install leaves no gaps: all eight checks pass. Using `--skip-guidance`
+or `--skip-skills` turns the corresponding check into a WARN with a remedy, which
+`--strict` refuses.
 
 ## Confirming the plugin actually loaded
 
@@ -181,20 +181,28 @@ project-local copy of a skill is overridden by the `skills.paths` entry — if y
 want to customize one, point `skills.paths` at your own directory instead of
 Citadel's.
 
-## Guidance is not projected either
+## Guidance is rendered into AGENTS.md
 
-The same gap applies to `AGENTS.md`. `runtimes/opencode/guidance/render.js`
-exists and exports a working `OPENCODE_GUIDANCE_TARGET`, but
-`opencode-install.js` never invokes it — it lists guidance as "no projection".
-Rendering it also needs a `.citadel/project.md` project spec, which the opencode
-install path does not create (`.citadel/` gets only `plugin-root.txt`,
-`scripts/` and `version.txt`).
+The installer renders `AGENTS.md` from the canonical spec at
+`.citadel/project.md`, creating the spec from a template if the project has none.
+opencode reads `AGENTS.md` first and falls back to `CLAUDE.md`.
 
-So `AGENTS.md` is yours to author. opencode reads `AGENTS.md` first, then
-`CLAUDE.md`, so an existing `CLAUDE.md` already works with no extra step.
+**An existing `AGENTS.md` is never replaced.** It is opencode's primary guidance
+file and may be hand-written, so clobbering it would silently change how every
+agent behaves in the project. The installer reports `guidance: kept …` and moves
+on; pass `--overwrite-guidance` to replace it deliberately, or `--skip-guidance`
+to leave guidance alone entirely.
 
-A fresh, correct install reports `guidance file present` as **WARN**, with a
-remedy line, and still exits 0. The readiness check separates two severities: *required* covers what the
+Edit `.citadel/project.md` and re-run with `--overwrite-guidance` to regenerate —
+`AGENTS.md` is a projection, not a source.
+
+The rendered file is opencode-specific, not a copy of the Codex projection: it
+states that skills are `/` slash commands, that agents come through `@`, and the
+three limits an agent in the project should know about — the `!` shell is
+ungated, the stop event cannot block, and a plugin load failure fails open.
+
+A fresh, correct install passes every check and reports `READY.`. The readiness
+check separates two severities: *required* covers what the
 installer guarantees plus the live proof that the gate blocks, and only those set
 the exit code; *advisory* covers capability a project gains by supplying
 something Citadel does not project. Pass `--strict` to make the advisory gaps

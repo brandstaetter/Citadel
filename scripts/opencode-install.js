@@ -6,7 +6,8 @@
 //
 // Much less work than the Codex installer, because opencode reads several Citadel
 // surfaces natively:
-//   guidance  AGENTS.md / CLAUDE.md            (yours to author; none is written)
+//   guidance  AGENTS.md, rendered from .citadel/project.md, never overwriting an
+//             existing one without --overwrite-guidance
 //   skills    scanned from the Citadel checkout through opencode.json skills.paths,
 //             so they are never copied and never go stale
 //   commands  derived from skills by opencode   (no projection — and an explicit
@@ -18,6 +19,7 @@ const path = require('path');
 
 const { installOpencodePlugin } = require('../runtimes/opencode/generators/install-plugin');
 const { projectOpencodeAgents } = require('../runtimes/opencode/generators/project-agents');
+const { projectOpencodeGuidance } = require('../runtimes/opencode/generators/project-guidance');
 
 const CITADEL_ROOT = path.resolve(__dirname, '..');
 
@@ -28,6 +30,8 @@ Options:
   --dry-run              Report every write without making it
   --skip-agents          Do not project agents into .opencode/agent
   --skip-skills          Do not add Citadel's skills directory to skills.paths
+  --skip-guidance        Do not render AGENTS.md
+  --overwrite-guidance   Replace an existing AGENTS.md (off by default)
   --json                 Machine-readable output
   -h, --help             Show this help
 `;
@@ -73,6 +77,16 @@ function run(argv = process.argv.slice(2)) {
     steps.push({ step: 'agents', count: agents.length, targets: agents.map((item) => item.targetPath) });
   }
 
+  if (!has(argv, '--skip-guidance')) {
+    const guidance = projectOpencodeGuidance({
+      citadelRoot: CITADEL_ROOT,
+      projectRoot,
+      dryRun,
+      overwriteGuidance: has(argv, '--overwrite-guidance'),
+    });
+    steps.push({ step: 'guidance', ...guidance });
+  }
+
   return {
     ok: true,
     dryRun,
@@ -105,10 +119,17 @@ function render(result) {
       }
     }
     if (step.step === 'agents') lines.push(`agents:  ${step.count} projected into .opencode/agent`);
+    if (step.step === 'guidance') {
+      if (step.skipped) lines.push(`guidance: kept ${step.filePath} — ${step.reason}`);
+      else if (step.dryRun) lines.push(`guidance: would ${step.action} ${step.filePath}`);
+      else {
+        lines.push(`guidance: wrote ${step.filePath}`);
+        if (step.specCreated) lines.push(`          created ${step.specPath} — edit the spec, not AGENTS.md`);
+      }
+    }
   }
   lines.push('');
   lines.push('Not copied — opencode reads these where they already live:');
-  lines.push('  guidance  AGENTS.md / CLAUDE.md (yours to author; Citadel writes none)');
   lines.push("  skills    scanned from the Citadel checkout via opencode.json skills.paths");
   lines.push('  commands  derived from skills by opencode, so no command files');
   lines.push('');
