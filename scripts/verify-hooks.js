@@ -450,6 +450,40 @@ test('session-end: writes hook-timing.jsonl entry', () => {
   if (after <= before) return 'hook-timing.jsonl not updated';
 });
 
+test('session-end: preserves the v2 trust schema and removes legacy aliases', () => {
+  const configPath = path.join(rDir, '.claude', 'harness.json');
+  const original = fs.existsSync(configPath) ? fs.readFileSync(configPath, 'utf8') : null;
+  const config = {
+    schemaVersion: 2,
+    trust: {
+      sessionsCompleted: 7,
+      campaignsCompleted: 0,
+      campaignsReverted: 0,
+      fleetCleanMerges: 0,
+      improveLoopsAccepted: 0,
+      daemonRuns: 0,
+      override: null,
+      sessions_completed: 2,
+    },
+  };
+
+  try {
+    fs.writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+    const r = fireHook('session-end.js', { session_id: 'test-session-v2-trust' }, rDir);
+    if (r.exitCode !== 0) return `exit ${r.exitCode}: ${r.stderr.slice(0, 200)}`;
+
+    const updated = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    if (updated.trust.sessionsCompleted !== 10) {
+      return `expected sessionsCompleted=10, got ${updated.trust.sessionsCompleted}`;
+    }
+    const legacyKeys = Object.keys(updated.trust).filter(key => key.includes('_'));
+    if (legacyKeys.length > 0) return `legacy trust keys remain: ${legacyKeys.join(', ')}`;
+  } finally {
+    if (original === null) fs.rmSync(configPath, { force: true });
+    else fs.writeFileSync(configPath, original, 'utf8');
+  }
+});
+
 // ── task-events.js ──
 
 test('task-events: exits 0 on TaskCreated', () => {

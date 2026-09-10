@@ -24,6 +24,7 @@
 const fs = require('fs');
 const path = require('path');
 const health = require('./harness-health-util');
+const { normalizeTrust } = require('../core/config/migrate');
 
 // Real token reader -- gracefully falls back if not available
 let sessionTokens = null;
@@ -287,13 +288,57 @@ function logSessionCost(event) {
  * Tracks sessions completed and campaigns completed this session.
  * Non-critical -- wrapped in try/catch.
  */
+function reconcileV2TrustCounters(trust) {
+  const reconciled = { ...trust };
+  const legacyCounters = {
+    sessionsCompleted: 'sessions_completed',
+    campaignsCompleted: 'campaigns_completed',
+    fleetCleanMerges: 'fleet_clean_merges',
+    improveLoopsAccepted: 'improve_loops_accepted',
+    daemonRuns: 'daemon_runs',
+  };
+
+  for (const [canonicalKey, legacyKey] of Object.entries(legacyCounters)) {
+    if (!Number.isInteger(trust[legacyKey]) || trust[legacyKey] < 0) continue;
+    const canonicalValue = Number.isInteger(trust[canonicalKey]) && trust[canonicalKey] >= 0
+      ? trust[canonicalKey]
+      : 0;
+    // Earlier v2 hooks wrote new activity to snake_case aliases. Add that
+    // activity before normalization removes the aliases.
+    reconciled[canonicalKey] = canonicalValue + trust[legacyKey];
+  }
+
+  return normalizeTrust(reconciled);
+}
+
 function incrementTrustCounters() {
   try {
     const configPath = path.join(PROJECT_ROOT, '.claude', 'harness.json');
     if (!fs.existsSync(configPath)) return; // trust isn't tracked without config
 
     const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-    if (!config.trust) {
+    const isV2 = config.schemaVersion === 2;
+    const counterKeys = isV2
+      ? {
+          sessions: 'sessionsCompleted',
+          campaigns: 'campaignsCompleted',
+          fleetMerges: 'fleetCleanMerges',
+          improveLoops: 'improveLoopsAccepted',
+          daemonRuns: 'daemonRuns',
+        }
+      : {
+          sessions: 'sessions_completed',
+          campaigns: 'campaigns_completed',
+          fleetMerges: 'fleet_clean_merges',
+          improveLoops: 'improve_loops_accepted',
+          daemonRuns: 'daemon_runs',
+        };
+
+    if (isV2) {
+      // Reconcile activity written by earlier v2 hooks before normalization
+      // removes snake_case aliases that the v2 validator rejects.
+      config.trust = reconcileV2TrustCounters(config.trust);
+    } else if (!config.trust || typeof config.trust !== 'object' || Array.isArray(config.trust)) {
       config.trust = {
         sessions_completed: 0,
         campaigns_completed: 0,
@@ -305,8 +350,8 @@ function incrementTrustCounters() {
       };
     }
 
-    // Always increment sessions_completed
-    config.trust.sessions_completed = (config.trust.sessions_completed || 0) + 1;
+    // Always increment the runtime's canonical session counter.
+    config.trust[counterKeys.sessions] = (config.trust[counterKeys.sessions] || 0) + 1;
 
     const fiveMinutesAgo = Date.now() - 5 * 60 * 1000;
 
@@ -318,7 +363,7 @@ function incrementTrustCounters() {
         try {
           const stat = fs.statSync(path.join(completedDir, f));
           if (stat.mtimeMs >= fiveMinutesAgo) {
-            config.trust.campaigns_completed = (config.trust.campaigns_completed || 0) + 1;
+            config.trust[counterKeys.campaigns] = (config.trust[counterKeys.campaigns] || 0) + 1;
             break; // count at most one campaign completion per session
           }
         } catch { /* skip unreadable files */ }
@@ -334,7 +379,7 @@ function incrementTrustCounters() {
           const content = fs.readFileSync(path.join(fleetDir, f), 'utf8');
           const stat = fs.statSync(path.join(fleetDir, f));
           if (stat.mtimeMs >= fiveMinutesAgo && /status:\s*completed/i.test(content) && !/conflict/i.test(content)) {
-            config.trust.fleet_clean_merges = (config.trust.fleet_clean_merges || 0) + 1;
+            config.trust[counterKeys.fleetMerges] = (config.trust[counterKeys.fleetMerges] || 0) + 1;
             break;
           }
         } catch { /* skip unreadable files */ }
@@ -354,7 +399,7 @@ function incrementTrustCounters() {
             try {
               const stat = fs.statSync(path.join(improveLogsDir, target, lf));
               if (stat.mtimeMs >= fiveMinutesAgo) {
-                config.trust.improve_loops_accepted = (config.trust.improve_loops_accepted || 0) + 1;
+                config.trust[counterKeys.improveLoops] = (config.trust[counterKeys.improveLoops] || 0) + 1;
                 break;
               }
             } catch { /* skip */ }
@@ -371,7 +416,7 @@ function incrementTrustCounters() {
         try {
           const daemon = JSON.parse(fs.readFileSync(daemonPath, 'utf8'));
           if (daemon.status === 'running') {
-            config.trust.daemon_runs = (config.trust.daemon_runs || 0) + 1;
+            config.trust[counterKeys.daemonRuns] = (config.trust[counterKeys.daemonRuns] || 0) + 1;
           }
         } catch { /* skip */ }
       }
