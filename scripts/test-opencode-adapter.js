@@ -179,27 +179,138 @@ function testApplyPatchProjection() {
 }
 
 async function testApplyPatchIsGated(root) {
-  const patch = [
-    '*** Begin Patch',
-    '*** Update File: .env',
-    '*** End Patch',
-  ].join('\n');
-
-  const outcome = await runner.runHooksForEvent(
+  const patchOf = (...lines) => ['*** Begin Patch', ...lines, '*** End Patch'].join('\n');
+  const gate = (args) => runner.runHooksForEvent(
     'tool.execute.before',
-    preTool('apply_patch', { command: patch }, { directory: root }),
+    preTool('apply_patch', args, { directory: root }),
     { projectRoot: root },
   );
+
+  // opencode 1.18.30's apply_patch tool supplies `patchText`, not `command`
+  // (packages/opencode/src/tool/apply_patch.ts). Fixtures that used `command`
+  // tested a shape opencode never sends, and hid that a real patch was refused
+  // before any hook ran: the splitter could not find the body and failed closed.
+  const harmless = await gate({ patchText: patchOf('*** Update File: src/app.js', '@@', '-a', '+b') });
+  assert.equal(harmless.blocked, false, 'a valid opencode patch must not be blocked');
+
+  const added = await gate({ patchText: patchOf('*** Add File: src/new.js', '+hello') });
+  assert.equal(added.blocked, false, 'adding a file by patch must not be blocked');
+
+  // Both spellings must behave identically, so the Codex path keeps working.
+  const viaCommand = await gate({ command: patchOf('*** Update File: src/app.js', '@@', '-a', '+b') });
+  assert.equal(viaCommand.blocked, false, 'the command spelling must behave the same');
+
+  const outcome = await gate({ patchText: patchOf('*** Update File: .env') });
   assert.equal(outcome.blocked, true, 'an apply_patch touching .env must be blocked');
+  assert.match(outcome.reason, /protect-files/, 'the block must come from the gate, not a parse failure');
+
+  // A move is a write to the destination, so the destination is what gets gated.
+  const moved = await gate({ patchText: patchOf('*** Update File: src/a.js', '*** Move to: .env') });
+  assert.equal(moved.blocked, true, 'a patch moving a file onto a protected path must be blocked');
+  assert.match(moved.reason, /protect-files/);
 
   // A patch body the adapter cannot parse must not slip through ungated.
-  const unparseable = await runner.runHooksForEvent(
-    'tool.execute.before',
-    preTool('apply_patch', { command: 'garbage' }, { directory: root }),
-    { projectRoot: root },
-  );
+  const unparseable = await gate({ patchText: 'garbage' });
   assert.equal(unparseable.blocked, true, 'an unparseable apply_patch must fail closed');
   assert.match(unparseable.reason, /apply_patch/);
+
+  // Neither spelling present is still a parse failure, not a pass.
+  const empty = await gate({});
+  assert.equal(empty.blocked, true, 'an apply_patch with no patch body must fail closed');
+}
+
+// Citadel agents restrict tools the Claude Code way. opencode has no such field,
+// so a projection that drops them does not fall back to "restricted" -- it falls
+// back to opencode's defaults, which allow edits and shell.
+function testAgentToolRestrictionsProject() {
+  const agents = require(path.join(__dirname, '..', 'runtimes', 'opencode', 'generators', 'project-agents'));
+  const { opencodePermissionsFor, renderOpencodeAgent } = agents;
+
+  // The canonical read-only reviewer: an allow-list of read tools plus an
+  // explicit deny-list.
+  assert.deepStrictEqual(
+    opencodePermissionsFor({
+      tools: ['Read', 'Grep', 'Glob'],
+      disallowedTools: ['Edit', 'Write', 'Bash', 'NotebookEdit'],
+    }),
+    { edit: 'deny', bash: 'deny', webfetch: 'deny' },
+    'a read-only reviewer must deny edit, bash and webfetch',
+  );
+
+  // An allow-list is exhaustive on its own: anything unnamed is not granted.
+  assert.deepStrictEqual(
+    opencodePermissionsFor({ tools: ['Read', 'Grep', 'Glob'] }),
+    { edit: 'deny', bash: 'deny', webfetch: 'deny' },
+    'an allow-list alone must still withhold what it does not name',
+  );
+
+  // ...but it must not over-deny what it does grant.
+  assert.deepStrictEqual(
+    opencodePermissionsFor({ tools: ['Read', 'Glob', 'Grep', 'Bash'] }),
+    { edit: 'deny', webfetch: 'deny' },
+    'a tool the allow-list grants must not be denied',
+  );
+
+  // A deny-list alone is honoured.
+  assert.deepStrictEqual(
+    opencodePermissionsFor({ disallowedTools: ['Bash'] }),
+    { bash: 'deny' },
+    'a deny-list alone must be honoured',
+  );
+
+  // An unrestricted agent must not gain a permission block it never had.
+  assert.deepStrictEqual(opencodePermissionsFor({}), {}, 'no restrictions means no permission block');
+  assert.deepStrictEqual(
+    opencodePermissionsFor({ tools: ['Read', 'Write', 'Edit', 'Bash', 'WebFetch'] }),
+    {},
+    'an agent granted everything gets no permission block',
+  );
+
+  // Write is covered by opencode's `edit` permission -- it has no write key, so a
+  // Write-only restriction must still land somewhere.
+  assert.deepStrictEqual(
+    opencodePermissionsFor({ disallowedTools: ['Write'] }),
+    { edit: 'deny' },
+    'Write must map onto opencode edit, which is what actually gates it',
+  );
+
+  // And it has to survive into the rendered frontmatter, which is the thing
+  // opencode reads.
+  const rendered = renderOpencodeAgent({
+    name: 'arch-reviewer',
+    frontmatter: {
+      name: 'arch-reviewer',
+      description: 'Read-only reviewer.',
+      tools: ['Read', 'Grep', 'Glob'],
+      disallowedTools: ['Edit', 'Write', 'Bash', 'NotebookEdit'],
+    },
+    body: 'body',
+  });
+  assert.match(rendered, /^permission:$/m, 'the projection must emit a permission block');
+  assert.match(rendered, /^ {2}edit: deny$/m);
+  assert.match(rendered, /^ {2}bash: deny$/m);
+  assert.match(rendered, /^ {2}webfetch: deny$/m);
+  // The block belongs to the frontmatter, not the body.
+  const frontmatterOf = rendered.split('---')[1] || '';
+  assert.match(frontmatterOf, /permission:/, 'the permission block must be inside the frontmatter');
+
+  const open = renderOpencodeAgent({
+    name: 'archon',
+    frontmatter: { name: 'archon', description: 'Orchestrator.' },
+    body: 'body',
+  });
+  assert(!/permission:/.test(open), 'an unrestricted agent must not gain a permission block');
+
+  // The shipped read-only agents must actually be restricted, so a future edit to
+  // one of them cannot quietly hand it write access on opencode.
+  const parse = require(path.join(__dirname, '..', 'core', 'agents', 'parse-agent'));
+  const agentsDir = path.join(__dirname, '..', 'agents');
+  for (const name of ['arch-reviewer', 'policy-enforcer', 'phase-validator', 'knowledge-extractor']) {
+    const frontmatter = parse.parseAgentFrontmatter(fs.readFileSync(path.join(agentsDir, `${name}.md`), 'utf8'));
+    const permissions = opencodePermissionsFor(frontmatter);
+    assert.equal(permissions.edit, 'deny', `${name} must not be able to edit on opencode`);
+    assert.equal(permissions.bash, 'deny', `${name} must not be able to run shell on opencode`);
+  }
 }
 
 function testEventCoverage() {
@@ -715,6 +826,7 @@ async function main() {
     await testFailClosed(root);
     await testTimeoutEnforced(root);
     await testApplyPatchIsGated(root);
+    testAgentToolRestrictionsProject();
     await testPluginShim(root);
     await testDeferredGateReachesNextTurn();
     testRepromptPolicy();

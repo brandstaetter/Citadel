@@ -123,6 +123,15 @@ function normalizePathFields(toolInput) {
     normalized.file_path = normalized.filePath;
     delete normalized.filePath;
   }
+  // opencode's apply_patch argument is `patchText` (tool/apply_patch.ts in
+  // 1.18.30), not `command`. Without this the adapter cannot find the patch body
+  // and fails closed, so a perfectly harmless patch is refused before any hook
+  // runs. Canonicalize to `command`, which is what the Codex adapter and the
+  // patch splitter already read.
+  if (typeof normalized.patchText === 'string' && typeof normalized.command !== 'string') {
+    normalized.command = normalized.patchText;
+    delete normalized.patchText;
+  }
   if (typeof normalized.file_path === 'string') normalized.file_path = normalized.file_path.replace(/\\/g, '/');
   if (typeof normalized.path === 'string') normalized.path = normalized.path.replace(/\\/g, '/');
   return normalized;

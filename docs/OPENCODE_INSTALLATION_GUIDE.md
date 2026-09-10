@@ -286,6 +286,28 @@ session then sits `busy` and further prompts to it return nothing —
 `POST /session/{id}/abort` clears it. Pre-approve the permissions your project
 needs before enabling this under `opencode serve`.
 
+## Agent tool restrictions carry over
+
+Citadel agents declare tool access with a `tools` allow-list and a
+`disallowedTools` deny-list. opencode has no such field, so the projection
+translates them into its native `permission` map: `Edit`, `Write`, `MultiEdit`
+and `NotebookEdit` map onto opencode's `edit` (it has no separate write
+permission), `Bash` onto `bash`, and `WebFetch`/`WebSearch` onto `webfetch`. An
+allow-list is treated as exhaustive — anything it does not grant is denied.
+
+So `arch-reviewer` projects with:
+
+```yaml
+permission:
+  edit: deny
+  bash: deny
+  webfetch: deny
+```
+
+opencode withholds those tools from the agent entirely rather than refusing the
+call, so a read-only reviewer reports that it has no write tool at all. An agent
+with no restrictions gets no permission block and keeps opencode's defaults.
+
 ## Performance
 
 Each gated tool call spawns one Node process per matching hook. Measured on

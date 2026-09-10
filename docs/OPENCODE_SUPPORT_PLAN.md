@@ -966,6 +966,84 @@ Six mutations were confirmed to fail for the scoping fix (any session draining a
 notice, the plugin not passing the session id on record or on drain, a global cap,
 a global dedupe, and stranding legacy notices) and one for the enum.
 
+### Phase 6d — two maintainer blockers, both real
+
+Review on the upstream PR reproduced two P1s at `41937b0`. Both were confirmed
+against a live opencode 1.18.30 before being fixed, and both were coverage gaps
+that the existing tests actively concealed.
+
+**1. The adapter read the wrong apply_patch argument.** `parseApplyPatchOperations`
+was fed `tool_input.command`, but opencode's apply_patch tool supplies
+`patchText` (`packages/opencode/src/tool/apply_patch.ts` in 1.18.30). The
+splitter therefore never found the patch body and failed closed, so a valid
+harmless patch was refused *before any hook ran*:
+
+```
+opencode shape { patchText }: blocked=true  [citadel] could not parse apply_patch targets:
+                                            apply_patch args.command must be a non-empty string
+adapter shape  { command }:   blocked=false
+```
+
+The tests used the `command` fixture too, which is why this passed CI: they
+tested a shape opencode never sends. `patchText` is now canonicalized to
+`command` in `normalizePathFields`, alongside the existing `filePath` to
+`file_path` mapping, so the Codex adapter and the splitter keep reading one key.
+After the fix, on real `patchText` payloads:
+
+| Patch | Result |
+|---|---|
+| `*** Update File: src/app.js` | passes |
+| `*** Add File: src/new.js` | passes |
+| `*** Update File: .env` | blocked by `protect-files` |
+| `*** Update File: src/a.js` + `*** Move to: .env` | blocked by `protect-files` |
+| unparseable body, or neither argument present | blocked, fails closed |
+
+**2. Agent tool restrictions were dropped in projection.** Citadel agents declare
+access the Claude Code way — a `tools` allow-list and a `disallowedTools`
+deny-list. `renderOpencodeAgent` emitted only `description` and `mode`. Dropping
+the restrictions does not degrade to "restricted", it degrades to opencode's
+defaults, which allow edits and shell. The canonical read-only reviewer was
+projected with no permission policy at all.
+
+*The mapping was read off a live instance, not guessed.* Two probe agents were
+projected and resolved through `GET /agent`:
+
+- `permission: {edit: deny, bash: deny, webfetch: deny}` compiles to exactly those
+  three `{permission, pattern: '*', action: 'deny'}` rules.
+- `tools: {write: false}` compiles to **no rule at all** — opencode has no
+  separate write permission; `edit` covers writes.
+
+So the deny-list is expressed through `permission`, and `Write`/`NotebookEdit`
+map onto `edit`. A permission is denied when a disallowed tool maps to it, or
+when an allow-list exists and grants nothing that maps to it. The seven shipped
+agents resolve to:
+
+```
+arch-reviewer, policy-enforcer, phase-validator, knowledge-extractor
+                       edit=deny bash=deny webfetch=deny
+arbiter                edit=deny webfetch=deny          (its allow-list grants Bash)
+archon, fleet          (unrestricted — no permission block)
+```
+
+*Verified live, with a control.* Same prompt, two agents:
+
+```
+archon        (unrestricted) : wrote notes-ctl.txt              — file exists on disk
+arch-reviewer (restricted)   : "I don't have access to a write tool
+                               in my available functions"       — no file written
+archon        (unrestricted) : ran bash, reported SHELL_OK_archon
+arch-reviewer (restricted)   : "the bash tool isn't available in this environment"
+```
+
+opencode does not merely refuse the call — it withholds the tool from the agent
+entirely, which is stronger. Note the first attempt at this proved nothing: asked
+to create `breach.txt`, the model refused on its own judgment. A restriction has
+to be demonstrated against a control that *succeeds*, or you are testing the
+model's manners rather than the permission layer.
+
+Four mutations were each confirmed to fail: reverting either fix, an allow-list
+that stops being exhaustive, and `Write` no longer mapping onto `edit`.
+
 ## 6. Risks
 
 1. **Upstream API churn.** Six hooks are `experimental.*` and `permission.ask`

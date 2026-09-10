@@ -36,6 +36,65 @@ function yamlString(value) {
   return `"${text}"`;
 }
 
+// Citadel agents declare tool access the Claude Code way: an allow-list in
+// `tools` and/or a deny-list in `disallowedTools`. opencode has no such field --
+// its markdown frontmatter takes a `permission` map, which it compiles into
+// {permission, pattern, action} rules. Dropping the restrictions therefore does
+// not degrade to "restricted by default", it degrades to opencode's defaults,
+// which allow edits and shell execution. A read-only reviewer projected without
+// this can write files and run commands.
+//
+// The mapping was read off a live opencode 1.18.30 instance rather than guessed:
+// an agent declaring `permission: {edit: deny, bash: deny, webfetch: deny}`
+// resolves to exactly those three deny rules via GET /agent. `tools: {write:
+// false}` compiles to no rule at all -- opencode has no separate write
+// permission, `edit` covers it -- which is why the deny-list is expressed through
+// `permission` and not through a tools map.
+const OPENCODE_PERMISSION_BY_TOOL = Object.freeze({
+  edit: ['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'apply_patch'],
+  bash: ['Bash', 'BashOutput', 'KillShell'],
+  webfetch: ['WebFetch', 'WebSearch'],
+});
+
+// Only permissions opencode can actually gate. Read/Grep/Glob have no deny key,
+// so an agent restricted to them is expressed by denying everything else.
+const GATEABLE_PERMISSIONS = Object.freeze(Object.keys(OPENCODE_PERMISSION_BY_TOOL));
+
+function toolListOf(value) {
+  if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
+  if (typeof value === 'string' && value.trim()) {
+    return value.split(',').map((item) => item.trim()).filter(Boolean);
+  }
+  return [];
+}
+
+/**
+ * Translate Citadel tool restrictions into an opencode permission map.
+ *
+ * A permission is denied when the agent explicitly disallows a tool that maps to
+ * it, or when the agent declares an allow-list that grants no tool mapping to it.
+ * An agent with neither field is unrestricted and gets no permission block.
+ */
+function opencodePermissionsFor(frontmatter = {}) {
+  const allowed = toolListOf(frontmatter.tools);
+  const disallowed = toolListOf(frontmatter.disallowedTools);
+  if (allowed.length === 0 && disallowed.length === 0) return {};
+
+  const has = (list, names) => names.some(
+    (name) => list.some((item) => item.toLowerCase() === name.toLowerCase()),
+  );
+
+  const permissions = {};
+  for (const permission of GATEABLE_PERMISSIONS) {
+    const tools = OPENCODE_PERMISSION_BY_TOOL[permission];
+    const explicitlyDenied = has(disallowed, tools);
+    // An allow-list is exhaustive: anything it does not name is not granted.
+    const withheld = allowed.length > 0 && !has(allowed, tools);
+    if (explicitlyDenied || withheld) permissions[permission] = 'deny';
+  }
+  return permissions;
+}
+
 function renderOpencodeAgent(parsedAgent, options = {}) {
   const name = parsedAgent.frontmatter.name || parsedAgent.name;
   const description = parsedAgent.frontmatter.description || '';
@@ -52,6 +111,16 @@ function renderOpencodeAgent(parsedAgent, options = {}) {
     `mode: ${SUBAGENT_MODE}`,
   ];
   if (options.model) frontmatter.push(`model: ${yamlString(options.model)}`);
+
+  // Restrictions must survive the projection or the agent is more capable on
+  // opencode than it is on Claude Code.
+  const permissions = opencodePermissionsFor(parsedAgent.frontmatter);
+  const permissionKeys = Object.keys(permissions);
+  if (permissionKeys.length) {
+    frontmatter.push('permission:');
+    for (const key of permissionKeys) frontmatter.push(`  ${key}: ${permissions[key]}`);
+  }
+
   frontmatter.push('---', '');
 
   return `${frontmatter.join('\n')}${body.trim()}\n`;
@@ -91,5 +160,7 @@ module.exports = Object.freeze({
   GENERATED_HEADER,
   projectOpencodeAgents,
   renderOpencodeAgent,
+  opencodePermissionsFor,
+  OPENCODE_PERMISSION_BY_TOOL,
   yamlString,
 });
