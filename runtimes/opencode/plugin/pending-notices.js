@@ -13,6 +13,10 @@
 // One turn late is a real reduction and the runtime contract still says
 // `stop-cannot-block`. But the finding reaching the model late beats it being
 // discarded, which is what happened before.
+//
+// Notices are scoped to the session that produced them. The store is per project
+// and opencode runs many sessions per project, so an unscoped store lets one
+// session drain another's findings.
 
 const fs = require('fs');
 const path = require('path');
@@ -57,9 +61,33 @@ function writeStore(projectRoot, store) {
   fs.writeFileSync(file, `${JSON.stringify(store, null, 2)}\n`, 'utf8');
 }
 
+function sessionOf(value) {
+  return typeof value === 'string' && value ? value : null;
+}
+
+// The store is per project, but opencode runs many sessions inside one project.
+// A notice therefore belongs to the session whose turn produced it, and only that
+// session may collect it -- otherwise a prompt in session B consumes session A's
+// finding, and A is never told.
+function sameSession(notice, sessionID) {
+  return sessionOf(notice && notice.sessionID) === sessionOf(sessionID);
+}
+
+// Notices written before findings were scoped carry no sessionID. Rather than
+// strand them, treat them as addressed to whoever asks next: the store is
+// transient, so this only matters across a single upgrade.
+function deliverableTo(notice, sessionID) {
+  const owner = sessionOf(notice && notice.sessionID);
+  return owner === null || owner === sessionOf(sessionID);
+}
+
 /**
  * Persist findings so the next turn can deliver them. Returns the notices added,
  * which is empty when everything was a duplicate.
+ *
+ * `options.sessionID` is the session whose idle produced the finding. Dedupe and
+ * the cap both apply within that session: two sessions hitting the same finding
+ * should each hear about it, and one noisy session must not evict another's.
  */
 function record(projectRoot, event, messages, options = {}) {
   const texts = (Array.isArray(messages) ? messages : [messages])
@@ -67,49 +95,62 @@ function record(projectRoot, event, messages, options = {}) {
     .map((item) => item.trim().slice(0, MAX_TEXT_LENGTH));
   if (texts.length === 0) return [];
 
+  const sessionID = sessionOf(options.sessionID);
   const store = readStore(projectRoot);
-  const seen = new Set(store.notices.map((item) => item.id));
+  const seen = new Set(
+    store.notices.filter((item) => sameSession(item, sessionID)).map((item) => item.id),
+  );
   const added = [];
 
   for (const text of texts) {
     const id = noticeId(text);
     if (seen.has(id)) continue;
     seen.add(id);
-    const notice = { id, event, text, at: options.now || new Date().toISOString() };
+    const notice = { id, event, sessionID, text, at: options.now || new Date().toISOString() };
     store.notices.push(notice);
     added.push(notice);
   }
   if (added.length === 0) return [];
 
   // Keep the newest when capped: a stale finding from early in the session is
-  // less useful than the current one.
-  if (store.notices.length > MAX_NOTICES) {
-    store.notices = store.notices.slice(-MAX_NOTICES);
+  // less useful than the current one. Ids are content hashes and deduped within
+  // the session, so they identify a notice uniquely here.
+  const mine = store.notices.filter((item) => sameSession(item, sessionID));
+  if (mine.length > MAX_NOTICES) {
+    const keep = new Set(mine.slice(-MAX_NOTICES).map((item) => item.id));
+    store.notices = store.notices.filter(
+      (item) => !sameSession(item, sessionID) || keep.has(item.id),
+    );
   }
   writeStore(projectRoot, store);
   return added;
 }
 
-/** Read the pending notices without consuming them. */
-function peek(projectRoot) {
-  return readStore(projectRoot).notices;
+/** Read the notices addressed to this session without consuming them. */
+function peek(projectRoot, sessionID) {
+  return readStore(projectRoot).notices.filter((item) => deliverableTo(item, sessionID));
 }
 
 /**
- * Return the pending notices and clear the store, so each finding is delivered
- * once. Clearing first would risk losing them if rendering threw, so the file is
- * only emptied after the caller has the contents in hand.
+ * Return this session's pending notices and clear only those, so each finding is
+ * delivered once and to the session it belongs to. Clearing first would risk
+ * losing them if rendering threw, so the file is only rewritten after the caller
+ * has the contents in hand.
  */
-function drain(projectRoot) {
-  const notices = readStore(projectRoot).notices;
-  if (notices.length === 0) return [];
+function drain(projectRoot, sessionID) {
+  const all = readStore(projectRoot).notices;
+  const mine = all.filter((item) => deliverableTo(item, sessionID));
+  if (mine.length === 0) return [];
   try {
-    writeStore(projectRoot, { version: STORE_VERSION, notices: [] });
+    writeStore(projectRoot, {
+      version: STORE_VERSION,
+      notices: all.filter((item) => !deliverableTo(item, sessionID)),
+    });
   } catch {
     // If the store cannot be cleared, still deliver: a duplicate notice next turn
     // is better than a dropped one.
   }
-  return notices;
+  return mine;
 }
 
 /** Render notices as the text injected into the next turn. */

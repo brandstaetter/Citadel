@@ -236,6 +236,10 @@ is safe to delete; you will simply lose any finding not yet delivered.
 own repo; the installer does not write a `.gitignore` into your project, so add
 the line yourself if you do not want it committed.
 
+The store is one file per project, but findings are scoped to the session that
+produced them, so several opencode sessions can share a project without one
+collecting another's findings.
+
 ### Optional: act on findings without waiting for a human
 
 By default the finding waits for whoever types the next prompt. A project can

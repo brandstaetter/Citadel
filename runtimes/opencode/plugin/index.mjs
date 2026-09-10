@@ -153,12 +153,18 @@ export const CitadelPlugin = async ({ project, directory, worktree, client } = {
       // dispatched fire-and-forget by opencode, so a stop-time finding cannot
       // refuse anything; this is the turn where it reaches the model.
       //
+      // Only this session's findings: the store is per project and opencode runs
+      // many sessions in one, so an unscoped read would hand session A's finding
+      // to session B and leave A none the wiser.
+      const identity = partIdentity(input, output);
+      const sessionID = input?.sessionID || identity?.sessionID || null;
+
       // Notices are peeked, not drained, until the push is known to be possible.
       // Draining first loses the finding for good on any turn we cannot inject
       // into, and the store holds the only copy.
       let deferred = [];
       try {
-        deferred = notices.peek(projectRoot);
+        deferred = notices.peek(projectRoot, sessionID);
       } catch { /* never break a turn over a notice */ }
 
       const texts = [...outcome.messages];
@@ -169,7 +175,6 @@ export const CitadelPlugin = async ({ project, directory, worktree, client } = {
       // output.parts would be discarded, because prompt.ts keeps iterating the
       // array it handed in.
       if (!Array.isArray(output.parts)) return;
-      const identity = partIdentity(input, output);
       // Without an identity the part cannot be built, and pushing a partial one
       // does not degrade quietly -- it fails the whole turn with a 500. Stay
       // silent instead, and leave the notices for a turn that can carry them.
@@ -185,7 +190,7 @@ export const CitadelPlugin = async ({ project, directory, worktree, client } = {
 
       if (deferred.length) {
         try {
-          notices.drain(projectRoot);
+          notices.drain(projectRoot, sessionID);
         } catch { /* a duplicate next turn beats a dropped finding */ }
       }
     },
@@ -212,7 +217,9 @@ export const CitadelPlugin = async ({ project, directory, worktree, client } = {
       if (event.type === 'session.idle') {
         if (outcome.messages.length) {
           try {
-            notices.record(projectRoot, event.type, outcome.messages);
+            notices.record(projectRoot, event.type, outcome.messages, {
+              sessionID: event.properties?.sessionID,
+            });
           } catch { /* an undeliverable notice must not break the session */ }
         }
         // Every idle, finding or not: the guard's loop mark is consumed here.

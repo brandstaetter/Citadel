@@ -905,6 +905,67 @@ delivered on the next turn is delivery, not enforcement, and this run makes that
 concrete: `session.idle` could not stop turn A from ending with the violation in
 place.
 
+### Phase 6c — two review findings, both real
+
+Automated review on the upstream PR raised two P1s. Both were verified against the
+code before acting, and both were genuine.
+
+**1. Deferred findings were not scoped to a session.** The store lives at
+`.planning/opencode/pending-notices.json`, one file per *project* — but opencode
+runs many sessions inside one project, and `record`/`peek`/`drain` all ignored the
+`sessionID` that both `session.idle` and `chat.message` were already carrying. A
+prompt in session B therefore drained session A's finding: B got an instruction
+about work it had not done, and A was never told at all. Reproduced in three
+lines against the real store before fixing.
+
+Notices now carry the session whose idle produced them, and only that session can
+collect them. Two consequences fall out and are tested:
+
+- **Dedupe is per session.** The same finding in two sessions is not a duplicate;
+  each has to hear about it.
+- **The cap is per session.** A global cap let one noisy session evict a quiet
+  one's only finding.
+
+Notices written before scoping carry no `sessionID`. Rather than strand them they
+are delivered to whoever asks next — the store is transient, so this matters for
+exactly one upgrade.
+
+*Verified live*, two concurrent sessions in one project, both with the violation
+present:
+
+```
+store after A's turn : 1 notice, owner=ses_…HnK6 (A)
+B takes a turn       : B's user message has 1 part — no injection
+store after B's turn : 2 notices, owner=A and owner=B
+A takes a turn       : A's user message has 2 parts — prompt + [INJECTED]
+store after A's turn : 1 left, owner=B  (untouched)
+```
+
+Zero server errors. Before the fix, B's turn would have consumed A's notice.
+
+**2. `opencode` was missing from the activation runtime enum.**
+`scripts/install.js` `normalizeRuntime()` returns `'opencode'`, but
+`core/telemetry/activation.js` accepted only `claude-code`, `codex`, `unknown` and
+`other`. Validation threw for both the `install_started` and `install_completed`
+events, and `install.js`'s `recordSafely` catches everything and returns
+`{recorded: false}` — so **every opencode install was silently absent from
+activation metrics**, with no error surfaced anywhere. Reproduced directly:
+
+```
+claude-code  recorded=true
+codex        recorded=true
+opencode     THREW: runtime must be one of: claude-code, codex, unknown, other
+```
+
+`'opencode'` is now in the list. The regression test asserts the actual invariant
+rather than the literal list — that every runtime `normalizeRuntime()` can emit is
+one `activation.RUNTIMES` accepts — so the next runtime to be added cannot repeat
+this silently.
+
+Six mutations were confirmed to fail for the scoping fix (any session draining any
+notice, the plugin not passing the session id on record or on drain, a global cap,
+a global dedupe, and stranding legacy notices) and one for the enum.
+
 ## 6. Risks
 
 1. **Upstream API churn.** Six hooks are `experimental.*` and `permission.ask`

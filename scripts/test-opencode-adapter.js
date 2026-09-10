@@ -344,50 +344,100 @@ function testStdoutEnvelopeUnwrapping() {
 
 function testPendingNoticeStore() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'citadel-notices-'));
+  const S = 'ses_one';
   try {
-    assert.deepStrictEqual(notices.peek(root), [], 'an absent store reads as empty');
-    assert.deepStrictEqual(notices.drain(root), [], 'draining nothing is not an error');
+    assert.deepStrictEqual(notices.peek(root, S), [], 'an absent store reads as empty');
+    assert.deepStrictEqual(notices.drain(root, S), [], 'draining nothing is not an error');
 
-    const added = notices.record(root, 'session.idle', ['finding one']);
+    const added = notices.record(root, 'session.idle', ['finding one'], { sessionID: S });
     assert.equal(added.length, 1);
 
     // session.idle fires repeatedly with the same verdict, so identical findings
     // must not stack: the model would otherwise see N copies.
-    assert.deepStrictEqual(notices.record(root, 'session.idle', ['finding one']), []);
-    assert.equal(notices.peek(root).length, 1);
+    assert.deepStrictEqual(notices.record(root, 'session.idle', ['finding one'], { sessionID: S }), []);
+    assert.equal(notices.peek(root, S).length, 1);
 
-    notices.record(root, 'session.idle', ['finding two']);
-    assert.equal(notices.peek(root).length, 2);
+    notices.record(root, 'session.idle', ['finding two'], { sessionID: S });
+    assert.equal(notices.peek(root, S).length, 2);
 
     // A long session must not accumulate an unbounded prompt injection.
     for (let i = 0; i < notices.MAX_NOTICES + 5; i += 1) {
-      notices.record(root, 'session.idle', [`bulk ${i}`]);
+      notices.record(root, 'session.idle', [`bulk ${i}`], { sessionID: S });
     }
-    assert.equal(notices.peek(root).length, notices.MAX_NOTICES);
+    assert.equal(notices.peek(root, S).length, notices.MAX_NOTICES);
     // The newest survive: a stale finding is less useful than the current one.
-    assert(notices.peek(root).some((item) => item.text.includes(`bulk ${notices.MAX_NOTICES + 4}`)));
+    assert(notices.peek(root, S).some((item) => item.text.includes(`bulk ${notices.MAX_NOTICES + 4}`)));
 
     // Draining delivers once.
-    const drained = notices.drain(root);
+    const drained = notices.drain(root, S);
     assert.equal(drained.length, notices.MAX_NOTICES);
-    assert.deepStrictEqual(notices.peek(root), []);
+    assert.deepStrictEqual(notices.peek(root, S), []);
 
     // Oversized text is truncated rather than injected whole.
-    notices.record(root, 'session.idle', ['x'.repeat(notices.MAX_TEXT_LENGTH + 500)]);
-    assert.equal(notices.peek(root)[0].text.length, notices.MAX_TEXT_LENGTH);
+    notices.record(root, 'session.idle', ['x'.repeat(notices.MAX_TEXT_LENGTH + 500)], { sessionID: S });
+    assert.equal(notices.peek(root, S)[0].text.length, notices.MAX_TEXT_LENGTH);
 
     // A corrupt store must not break a turn.
     fs.writeFileSync(notices.storePath(root), '{ not json');
-    assert.deepStrictEqual(notices.peek(root), [], 'a corrupt store reads as empty');
-    assert.equal(notices.record(root, 'session.idle', ['after corruption']).length, 1);
+    assert.deepStrictEqual(notices.peek(root, S), [], 'a corrupt store reads as empty');
+    assert.equal(notices.record(root, 'session.idle', ['after corruption'], { sessionID: S }).length, 1);
 
     // Empty and non-string inputs are ignored.
-    assert.deepStrictEqual(notices.record(root, 'session.idle', ['  ', null, undefined]), []);
+    assert.deepStrictEqual(notices.record(root, 'session.idle', ['  ', null, undefined], { sessionID: S }), []);
 
     // The rendered text must say why it is arriving late.
     const rendered = notices.renderForPrompt([{ text: 'the finding' }]);
     assert(rendered.includes('the finding'));
     assert(/cannot block/i.test(rendered), 'the injection must explain why it is late');
+
+    // A notice belongs to the session whose turn produced it. The store is per
+    // project and opencode runs many sessions in one, so an unscoped store let a
+    // prompt in session B consume session A's finding and leave A uninformed.
+    fs.rmSync(notices.storePath(root), { force: true });
+    notices.record(root, 'session.idle', ['finding for A'], { sessionID: 'ses_a' });
+    notices.record(root, 'session.idle', ['finding for B'], { sessionID: 'ses_b' });
+    assert.deepStrictEqual(notices.peek(root, 'ses_a').map((n) => n.text), ['finding for A']);
+    assert.deepStrictEqual(notices.peek(root, 'ses_b').map((n) => n.text), ['finding for B']);
+    assert.deepStrictEqual(notices.peek(root, 'ses_c'), [], 'an uninvolved session sees nothing');
+
+    assert.deepStrictEqual(notices.drain(root, 'ses_a').map((n) => n.text), ['finding for A']);
+    assert.deepStrictEqual(
+      notices.peek(root, 'ses_b').map((n) => n.text),
+      ['finding for B'],
+      "draining one session must not consume another's",
+    );
+
+    // The same finding in two sessions is not a duplicate: each must hear it.
+    fs.rmSync(notices.storePath(root), { force: true });
+    assert.equal(notices.record(root, 'session.idle', ['same text'], { sessionID: 'ses_a' }).length, 1);
+    assert.equal(notices.record(root, 'session.idle', ['same text'], { sessionID: 'ses_b' }).length, 1);
+    assert.equal(notices.record(root, 'session.idle', ['same text'], { sessionID: 'ses_a' }).length, 0, 'still deduped within a session');
+    assert.equal(notices.peek(root, 'ses_a').length, 1);
+    assert.equal(notices.peek(root, 'ses_b').length, 1);
+
+    // The cap is per session, so a noisy session cannot evict a quiet one's.
+    fs.rmSync(notices.storePath(root), { force: true });
+    notices.record(root, 'session.idle', ['quiet session finding'], { sessionID: 'ses_quiet' });
+    for (let i = 0; i < notices.MAX_NOTICES + 10; i += 1) {
+      notices.record(root, 'session.idle', [`noisy ${i}`], { sessionID: 'ses_noisy' });
+    }
+    assert.equal(notices.peek(root, 'ses_noisy').length, notices.MAX_NOTICES, 'the noisy session is capped');
+    assert.deepStrictEqual(
+      notices.peek(root, 'ses_quiet').map((n) => n.text),
+      ['quiet session finding'],
+      "one session's flood must not evict another's finding",
+    );
+
+    // A notice written before scoping existed has no sessionID. Deliver it to
+    // whoever asks next rather than stranding it forever.
+    fs.rmSync(notices.storePath(root), { force: true });
+    fs.mkdirSync(path.dirname(notices.storePath(root)), { recursive: true });
+    fs.writeFileSync(
+      notices.storePath(root),
+      JSON.stringify({ version: 1, notices: [{ id: 'legacy', event: 'session.idle', text: 'legacy finding', at: 'x' }] }),
+    );
+    assert.deepStrictEqual(notices.drain(root, 'ses_any').map((n) => n.text), ['legacy finding'], 'a legacy notice is still delivered');
+    assert.deepStrictEqual(notices.peek(root, 'ses_any'), [], 'and consumed once');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }
@@ -425,20 +475,28 @@ async function testDeferredGateReachesNextTurn() {
     const plugin = await CitadelPlugin({ directory: root, worktree: root });
 
     // Turn one ends. opencode fires session.idle several times.
-    await plugin.event({ event: { type: 'session.idle', properties: {} } });
-    await plugin.event({ event: { type: 'session.idle', properties: {} } });
-    assert.equal(notices.peek(root).length, 1, 'repeated idle events must record one notice');
+    const sessionID = 'ses_deferred';
+    await plugin.event({ event: { type: 'session.idle', properties: { sessionID } } });
+    await plugin.event({ event: { type: 'session.idle', properties: { sessionID } } });
+    assert.equal(notices.peek(root, sessionID).length, 1, 'repeated idle events must record one notice');
+    assert.equal(notices.peek(root, 'ses_other').length, 0, 'the finding belongs to its own session');
 
     // A turn the finding cannot be injected into must keep it, not eat it.
     const undeliverable = { message: {}, parts: [] };
-    await plugin['chat.message']({}, undeliverable);
+    await plugin['chat.message']({ sessionID }, undeliverable);
     assert.equal(undeliverable.parts.length, 0, 'no identity means no push');
-    assert.equal(notices.peek(root).length, 1, 'an undeliverable finding must survive the turn');
+    assert.equal(notices.peek(root, sessionID).length, 1, 'an undeliverable finding must survive the turn');
+
+    // Another session's turn must not collect this session's finding.
+    const otherSession = { message: { id: LIVE_MESSAGE, sessionID: LIVE_SESSION, role: 'user' }, parts: [livePart('unrelated prompt')] };
+    await plugin['chat.message']({ sessionID: 'ses_other', messageID: LIVE_MESSAGE }, otherSession);
+    assert.equal(otherSession.parts.length, 1, "another session's turn must not be given this finding");
+    assert.equal(notices.peek(root, sessionID).length, 1, 'and must not consume it');
 
     // Turn two begins: the finding is handed to the model.
     const parts = [livePart('the next prompt')];
     const output = { message: { id: LIVE_MESSAGE, sessionID: LIVE_SESSION, role: 'user' }, parts };
-    await plugin['chat.message']({ sessionID: LIVE_SESSION, messageID: LIVE_MESSAGE }, output);
+    await plugin['chat.message']({ sessionID, messageID: LIVE_MESSAGE }, output);
 
     assert.strictEqual(output.parts, parts, 'output.parts must not be replaced');
     assert.equal(parts.length, 2, 'the finding must be pushed onto the existing array');
@@ -447,9 +505,9 @@ async function testDeferredGateReachesNextTurn() {
     assertValidPart(parts[1]);
 
     // Delivered once: a second turn must not repeat it.
-    assert.deepStrictEqual(notices.peek(root), [], 'the store must be drained');
+    assert.deepStrictEqual(notices.peek(root, sessionID), [], 'the store must be drained');
     const parts2 = [livePart('turn three')];
-    await plugin['chat.message']({ sessionID: LIVE_SESSION, messageID: LIVE_MESSAGE }, { message: {}, parts: parts2 });
+    await plugin['chat.message']({ sessionID, messageID: LIVE_MESSAGE }, { message: {}, parts: parts2 });
     assert.equal(parts2.length, 1, 'a delivered finding must not be repeated');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
