@@ -445,7 +445,7 @@ function checkDaemonState() {
     // Note: process.argv won't contain parent's -p flag -- hooks are child processes.
     const isNonInteractive = process.env.CLAUDE_NON_INTERACTIVE === '1';
 
-    if (isNonInteractive) {
+    if (isNonInteractive && daemon.localRunnerEnabled === true) {
       process.stdout.write(
         `[daemon] Active campaign: ${slug} (session #${sessions + 1}).${remaining}\n` +
         `Run: /do continue\n`

@@ -54,8 +54,8 @@ simultaneously without conflicts.
 Every agent runs in its own git worktree:
 - Separate working directory — no file conflicts between agents
 - Independent git branch — clean merge path
-- Dependencies auto-installed by the WorktreeCreate hook
-- Environment files copied from main repo
+- Missing dependencies reported by the WorktreeCreate hook; install through normal approval
+- Environment files remain in the main repo; authorize any required secret access separately
 
 ## Fleet Session Files
 

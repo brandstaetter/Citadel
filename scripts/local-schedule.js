@@ -9,12 +9,12 @@
  * system if configured), and reboots.
  *
  * Each scheduled task runs:
- *   claude --plugin-dir <project-root> --dangerously-skip-permissions -p "<command>"
+ *   claude --permission-mode default -p "<command>" (through a project-owned job record)
  *
  * Usage:
- *   node scripts/local-schedule.js add "<cron-or-human>" "<claude-command>"
- *   node scripts/local-schedule.js add "every 30m" "/pr-watch"
- *   node scripts/local-schedule.js add "0 9 * * *" "/do continue"
+ *   node scripts/local-schedule.js add "<cron-or-human>" "<claude-command>" --confirm
+ *   node scripts/local-schedule.js add "every 30m" "/pr-watch" --confirm
+ *   node scripts/local-schedule.js add "0 9 * * *" "/do continue" --confirm
  *   node scripts/local-schedule.js list
  *   node scripts/local-schedule.js remove <id>
  *
@@ -25,7 +25,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const os = require('os');
+const { platformInvocation } = require('../core/forks/launcher');
 const crypto = require('crypto');
 const { execFileSync, spawnSync } = require('child_process');
 
@@ -53,7 +53,7 @@ function toCron(expr) {
         'every weekday': '0 9 * * 1-5',
     };
     if (map[t]) return map[t];
-    if (/^\S+\s+\S+\s+\S+\s+\S+\s+\S+$/.test(expr.trim())) return expr.trim();
+    if (/^[0-9*,/\-]+(?: +[0-9*,/\-]+){4}$/.test(expr.trim())) return expr.trim();
     throw new Error(`Could not parse schedule "${expr}". Use a 5-field cron expression or a phrase like "every 30m".`);
 }
 
@@ -61,9 +61,52 @@ function newId() {
     return `citadel-${crypto.randomBytes(4).toString('hex')}`;
 }
 
-function claudeInvocation(claudeCommand) {
-    const plugin = ROOT.replace(/"/g, '\\"');
-    return `claude --plugin-dir "${plugin}" --dangerously-skip-permissions -p "${claudeCommand.replace(/"/g, '\\"')}"`;
+function validateId(id) {
+    if (!/^citadel-[a-f0-9]{8}$/.test(id)) throw new Error('Invalid Citadel schedule ID.');
+    return id;
+}
+
+function recordPath(id, root = ROOT) {
+    return path.join(root, '.citadel', 'schedules', validateId(id) + '.json');
+}
+
+function saveJob(id, command) {
+    const file = recordPath(id);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify({ id, command, projectRoot: path.resolve(ROOT) }) + '\n', { flag: 'wx', mode: 0o600 });
+}
+
+function forgetJob(id) {
+    fs.rmSync(recordPath(id), { force: true });
+}
+
+function quoteTaskPath(value) {
+    // cron handles % even inside shell quotes. Windows task command lines need
+    // literal paths, never shell expansion. Reject unsupported paths explicitly.
+    if (/[\r\n\0%"]/.test(value)) throw new Error('Unsupported scheduler path.');
+    return IS_WIN ? '"' + value + '"' : "'" + value.replace(/'/g, "'\\''") + "'";
+}
+
+function jobInvocation(id) {
+    const payload = Buffer.from(JSON.stringify({ id, root: path.resolve(ROOT) })).toString('base64url');
+    return quoteTaskPath(process.execPath) + ' ' + quoteTaskPath(__filename) + ' run ' + payload;
+}
+
+function runJob(payload) {
+    if (!/^[a-zA-Z0-9_-]+$/.test(payload || '')) throw new Error('Invalid job payload.');
+    const { id, root } = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+    if (typeof root !== 'string' || !path.isAbsolute(root)) throw new Error('Invalid project root.');
+    const file = recordPath(id, root);
+    // Removal deletes .citadel. Retained OS entries then become inert.
+    if (!fs.existsSync(file)) return;
+    const job = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (job.id !== id || job.projectRoot !== root || typeof job.command !== 'string' || !job.command.trim()) {
+        throw new Error('Invalid schedule record.');
+    }
+    const invocation = platformInvocation({ command: 'claude', args: ['--permission-mode', 'default', '-p', '--', job.command] });
+    const result = spawnSync(invocation.command, invocation.args, { cwd: root, shell: false, stdio: 'inherit', env: { ...process.env, CLAUDE_PROJECT_DIR: root } });
+    if (result.error) throw result.error;
+    process.exitCode = result.status === null ? 1 : result.status;
 }
 
 // --- Windows: schtasks -------------------------------------------------------
@@ -72,23 +115,27 @@ function winAdd(cronExpr, claudeCommand) {
     const parts = cronExpr.split(/\s+/);
     const [minute, hour] = parts;
     const id = newId();
-    const invocation = claudeInvocation(claudeCommand);
-    // schtasks supports basic minute/hourly/daily triggers. For arbitrary cron,
-    // we map common cases. Complex expressions are approximated to MINUTE.
+    const invocation = jobInvocation(id);
+    // Reject unsupported dates rather than silently broadening the cadence.
+    if (parts.slice(2).join(' ') !== '* * *') throw new Error('Windows supports only daily or interval schedules.');
     let schtasksArgs;
     if (parts.join(' ') === '* * * * *') {
-        schtasksArgs = ['/Create', '/SC', 'MINUTE', '/MO', '1', '/TN', id, '/TR', `cmd /c cd /d "${ROOT}" && ${invocation}`, '/F'];
+        schtasksArgs = ['/Create', '/SC', 'MINUTE', '/MO', '1', '/TN', id, '/TR', invocation, '/F'];
     } else if (/^\*\/\d+$/.test(minute) && hour === '*') {
         const mo = minute.slice(2);
-        schtasksArgs = ['/Create', '/SC', 'MINUTE', '/MO', mo, '/TN', id, '/TR', `cmd /c cd /d "${ROOT}" && ${invocation}`, '/F'];
+        schtasksArgs = ['/Create', '/SC', 'MINUTE', '/MO', mo, '/TN', id, '/TR', invocation, '/F'];
     } else if (minute === '0' && /^\*\/\d+$/.test(hour)) {
-        schtasksArgs = ['/Create', '/SC', 'HOURLY', '/MO', hour.slice(2), '/TN', id, '/TR', `cmd /c cd /d "${ROOT}" && ${invocation}`, '/F'];
-    } else if (minute === '0' && /^\d+$/.test(hour)) {
-        schtasksArgs = ['/Create', '/SC', 'DAILY', '/ST', `${hour.padStart(2, '0')}:00`, '/TN', id, '/TR', `cmd /c cd /d "${ROOT}" && ${invocation}`, '/F'];
+        schtasksArgs = ['/Create', '/SC', 'HOURLY', '/MO', hour.slice(2), '/TN', id, '/TR', invocation, '/F'];
+    } else if (minute === '0' && hour === '*') {
+        schtasksArgs = ['/Create', '/SC', 'HOURLY', '/MO', '1', '/TN', id, '/TR', invocation, '/F'];
+    } else if (/^\d+$/.test(minute) && /^\d+$/.test(hour) && Number(hour) < 24 && Number(minute) < 60) {
+        schtasksArgs = ['/Create', '/SC', 'DAILY', '/ST', `${hour.padStart(2, '0')}:${minute.padStart(2, '0')}`, '/TN', id, '/TR', invocation, '/F'];
     } else {
         throw new Error(`Windows Task Scheduler mapping not supported for "${cronExpr}". Use: every {N}m, every {N}h, or daily at {H}.`);
     }
-    execFileSync('schtasks', schtasksArgs, { stdio: 'inherit' });
+    saveJob(id, claudeCommand);
+    try { execFileSync('schtasks', schtasksArgs, { stdio: 'inherit' }); }
+    catch (error) { forgetJob(id); throw error; }
     console.log(`Scheduled. ID: ${id}`);
     console.log(`Remove with: node scripts/local-schedule.js remove ${id}`);
 }
@@ -102,6 +149,7 @@ function winList() {
 
 function winRemove(id) {
     execFileSync('schtasks', ['/Delete', '/TN', id, '/F'], { stdio: 'inherit' });
+    forgetJob(id);
     console.log(`Removed ${id}`);
 }
 
@@ -112,7 +160,9 @@ const CRON_MARKER_END = '# CITADEL-SCHEDULES-END';
 
 function readCrontab() {
     const r = spawnSync('crontab', ['-l'], { encoding: 'utf8' });
-    return r.status === 0 ? r.stdout : '';
+    if (r.status === 0) return r.stdout;
+    if (!r.error && /no crontab for/i.test(r.stderr || '')) return '';
+    throw new Error('Could not read crontab; refusing to replace it.');
 }
 
 function writeCrontab(content) {
@@ -123,7 +173,7 @@ function writeCrontab(content) {
 function unixAdd(cronExpr, claudeCommand) {
     const id = newId();
     const current = readCrontab();
-    const line = `${cronExpr} cd "${ROOT}" && ${claudeInvocation(claudeCommand)} # ${id}`;
+    const line = `${cronExpr} ${jobInvocation(id)} # ${id}`;
     let updated;
     if (current.includes(CRON_MARKER_START)) {
         updated = current.replace(CRON_MARKER_END, `${line}\n${CRON_MARKER_END}`);
@@ -131,7 +181,8 @@ function unixAdd(cronExpr, claudeCommand) {
         updated = current + (current.endsWith('\n') || !current ? '' : '\n') +
             `${CRON_MARKER_START}\n${line}\n${CRON_MARKER_END}\n`;
     }
-    writeCrontab(updated);
+    saveJob(id, claudeCommand);
+    try { writeCrontab(updated); } catch (error) { forgetJob(id); throw error; }
     console.log(`Scheduled. ID: ${id}`);
     console.log(`Remove with: node scripts/local-schedule.js remove ${id}`);
 }
@@ -145,15 +196,19 @@ function unixList() {
 
 function unixRemove(id) {
     const current = readCrontab();
-    const updated = current.split('\n').filter((l) => !l.includes(`# ${id}`)).join('\n');
+    const updated = current.split('\n').filter((l) => !l.trimEnd().endsWith(`# ${id}`)).join('\n');
     writeCrontab(updated);
+    forgetJob(id);
     console.log(`Removed ${id}`);
 }
 
 // --- Dispatch ----------------------------------------------------------------
 
 try {
-    if (cmd === 'add') {
+    if (cmd === 'run') {
+        runJob(rest[0]);
+    } else if (cmd === 'add') {
+        if (rest.length !== 3 || rest[2] !== '--confirm') throw new Error('Review the cadence, command and persistence, then pass --confirm to create the OS schedule.');
         const [expr, claudeCommand] = rest;
         if (!expr || !claudeCommand) { console.error('Usage: add "<cron>" "<claude command>"'); process.exit(1); }
         const cron = toCron(expr);
@@ -163,7 +218,7 @@ try {
         IS_WIN ? winList() : unixList();
     } else if (cmd === 'remove') {
         const id = rest[0];
-        if (!id) { console.error('Usage: remove <id>'); process.exit(1); }
+        validateId(id);
         IS_WIN ? winRemove(id) : unixRemove(id);
     } else {
         console.error(`Unknown command: ${cmd}. Use add|list|remove.`);

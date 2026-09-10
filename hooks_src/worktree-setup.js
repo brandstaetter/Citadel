@@ -4,8 +4,8 @@
  * worktree-setup.js — WorktreeCreate hook
  *
  * Auto-initializes new git worktrees for parallel agent execution.
- * Runs package install and copies environment files so sub-agents
- * can run typecheck, tests, and builds immediately.
+ * Reports missing dependencies and environment files without installing
+ * packages or copying secrets. Setup actions require normal tool approval.
  *
  * Receives stdin JSON: { "name": "agent-abc123", "path": "/path/to/worktree" }
  *
@@ -14,9 +14,7 @@
  *   2 = setup failed (blocks worktree creation)
  */
 
-const { execFileSync } = require('child_process');
 const path = require('path');
-const fs = require('fs');
 const health = require('./harness-health-util');
 const { checkWorktreeReadiness } = require('../core/worktree/readiness');
 
@@ -32,88 +30,8 @@ async function main(input) {
     return;
   }
 
-  // Verify the worktree has a package.json (Node project)
-  if (fs.existsSync(path.join(worktreePath, 'package.json'))) {
-    // Skip if node_modules already exists (resuming a worktree)
-    if (!fs.existsSync(path.join(worktreePath, 'node_modules'))) {
-      const config = health.readConfig();
-      const pm = config.packageManager || 'npm';
-      const [cmd, args] = pm === 'pnpm' ? ['pnpm', ['install', '--frozen-lockfile']]
-        : pm === 'yarn' ? ['yarn', ['install', '--frozen-lockfile']]
-        : pm === 'bun' ? ['bun', ['install', '--frozen-lockfile']]
-        : ['npm', ['ci', '--prefer-offline']];
-
-      try {
-        execFileSync(cmd, args, {
-          cwd: worktreePath,
-          timeout: 120000,
-          encoding: 'utf8',
-          stdio: ['pipe', 'pipe', 'pipe'],
-        });
-      } catch (err) {
-        process.stderr.write(`[worktree-setup] Install failed in ${worktreePath}: ${err.message}\n`);
-        // Don't block worktree creation — typecheck will gracefully skip
-      }
-    }
-  }
-
-  // For Python: create venv if requirements.txt exists
-  // Security: only run pip install if the requirements.txt is tracked by git
-  // (committed to the repository), not if it was written solely by an agent
-  // during this session. This prevents supply-chain attacks via agent-generated
-  // package lists. Set CITADEL_ALLOW_UNTRACKED_PIP=true to opt-out (e.g. greenfield).
-  if (fs.existsSync(path.join(worktreePath, 'requirements.txt'))) {
-    if (!fs.existsSync(path.join(worktreePath, '.venv'))) {
-      // Check whether requirements.txt is tracked in git
-      const allowUntrackedPip = process.env.CITADEL_ALLOW_UNTRACKED_PIP === 'true';
-      let reqTracked = false;
-      try {
-        execFileSync('git', ['ls-files', '--error-unmatch', 'requirements.txt'], {
-          cwd: worktreePath,
-          stdio: 'pipe',
-          timeout: 5000,
-        });
-        reqTracked = true;
-      } catch {
-        reqTracked = false;
-      }
-
-      if (!reqTracked && !allowUntrackedPip) {
-        process.stderr.write(
-          '[worktree-setup] Skipping pip install: requirements.txt is not tracked by git. ' +
-          'Set CITADEL_ALLOW_UNTRACKED_PIP=true to allow installing untracked requirements.\n'
-        );
-      } else {
-        try {
-          execFileSync('python', ['-m', 'venv', '.venv'], {
-            cwd: worktreePath,
-            timeout: 60000,
-            encoding: 'utf8',
-            stdio: ['pipe', 'pipe', 'pipe'],
-          });
-          const pipPath = process.platform === 'win32'
-            ? path.join('.venv', 'Scripts', 'pip')
-            : path.join('.venv', 'bin', 'pip');
-          execFileSync(pipPath, ['install', '-r', 'requirements.txt'], {
-            cwd: worktreePath,
-            timeout: 120000,
-            encoding: 'utf8',
-            stdio: ['pipe', 'pipe', 'pipe'],
-          });
-        } catch { /* non-critical */ }
-      }
-    }
-  }
-
-  // Copy .env.local if it exists in the main repo
-  for (const envFile of ['.env.local', '.env']) {
-    const src = path.join(MAIN_ROOT, envFile);
-    if (fs.existsSync(src)) {
-      try {
-        fs.copyFileSync(src, path.join(worktreePath, envFile));
-      } catch { /* non-critical */ }
-    }
-  }
+  // Readiness only. Tracked manifests and ignored env files are not consent
+  // to execute lifecycle scripts or distribute secrets to another checkout.
 
   try {
     const report = await checkWorktreeReadiness({

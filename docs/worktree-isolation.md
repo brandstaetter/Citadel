@@ -11,8 +11,8 @@ V4 worktree pool design (not yet implemented).
 Citadel is responsible for:
 
 1. **Creating the worktree** — `git worktree add {path} {branch}`
-2. **Setting up the environment** — `worktree-setup.js` runs npm/pip/bun install,
-   copies `.env.local`, handles venv creation
+2. **Setting up the environment** — `worktree-setup.js` checks readiness only.
+   Dependency installation, venv creation and secret access require separate approval
 3. **Recording readiness** — `worktree-readiness.js` writes dependency, env,
    port, and health-check status under `.planning/verification/worktree-readiness/`
 4. **Tracking the worktree** — campaign frontmatter records `branch` and `worktree_status`
@@ -247,8 +247,8 @@ breaking existing harness.json files.
 
 ### Implementation notes for V4
 
-- `worktree-setup.js` already handles `npm ci` skip when `node_modules` exists.
-  Pool worktrees will always have `node_modules` — setup becomes a no-op.
+- `worktree-setup.js` reports existing dependencies without installing packages.
+  Pool provisioning must separately authorize dependency installation and lifecycle scripts.
 - Pool acquisition needs to handle the case where all pool slots are in use: fall back
   to creating a fresh worktree (current behavior) rather than blocking.
 - Pool release must `git clean -fd` to reset file state before re-pooling.

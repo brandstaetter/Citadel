@@ -34,13 +34,13 @@ start, the hook:
 1. Reads `.planning/daemon.json`
 2. If `status: running`: checks the lock (no overlap), budget (can afford),
    and campaign (still active)
-3. If all gates pass: outputs
+3. For a noninteractive session with `localRunnerEnabled: true`, if all gates pass: outputs
    `[daemon] Active daemon detected. Campaign: {slug}. Run: /do continue`
 4. The agent sees this message first and executes `/do continue`
 
 RemoteTrigger's role is reduced to scheduling session starts. The hook
 handles everything else. If RemoteTrigger is unavailable, an OS cron job or
-manual restart achieves the same result.
+manual restart can start a session, but interactive sessions only receive a resume suggestion.
 
 ## Execution Paths
 
@@ -57,7 +57,7 @@ Daemon state created: .planning/daemon.json
 To start the tick loop, run in a separate terminal:
   npm run daemon:local
 
-Leave that terminal open. It spawns `claude -p "/do continue"` each
+Leave that terminal open. It spawns `claude --permission-mode default -p "/do continue"` each
 session, respects daemon.json status, and consumes zero Anthropic
 routine quota. Stop with Ctrl+C or `/daemon stop`.
 
@@ -72,6 +72,17 @@ cap. A single overnight run can exhaust the quota and pause every other
 routine on the account, including unrelated ones. See
 [ROUTINE-QUOTA.md](ROUTINE-QUOTA.md). The remote path therefore requires the
 explicit `--remote` flag plus a y/N confirmation that names the quota cost.
+
+### Local execution safety
+
+After approval of the campaign, finite budget and session limit, set
+`localRunnerEnabled: true` in daemon.json for the local runner. The default
+limit is 10 sessions; `--max-sessions N` requires a positive integer. A finite
+positive budget and valid estimatedSpend are required. The runner stops on
+failed execution and rechecks state before each spawn. Normal runtime permission
+checks remain enabled. The noninteractive environment variable alone does not
+authorize continuation. Remote starts leave this local opt-in disabled.
+See [runner safety and migration](ISSUE-278-SECURITY.md).
 
 ### Codex automation lane
 
@@ -97,6 +108,7 @@ Written by `/daemon start` before any triggers are created:
   "budget": 50,
   "costPerSession": 3,
   "estimatedSpend": 0,
+  "localRunnerEnabled": false,
   "sessionCount": 0,
   "interval": "30m",
   "cooldown": "60s",
