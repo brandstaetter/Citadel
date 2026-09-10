@@ -28,5 +28,12 @@ module.exports = Object.freeze({
     'stop-cannot-block',
     'permission-gate-not-native',
     'no-batch-or-failure-events',
+    // Verified live (phase 5): POST /session/{id}/shell — the TUI's bang-prefixed
+    // shell — does not fire tool.execute.before, so a human-issued shell command
+    // is ungated. Model-issued bash goes through the tool wrapper and is gated.
+    'shell-endpoint-not-gated',
+    // Verified live (phase 5): opencode discovers plugins once per process, so
+    // installing into a running opencode leaves the session ungated, silently.
+    'plugin-discovery-requires-restart',
   ],
 });

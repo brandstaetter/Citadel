@@ -348,7 +348,7 @@ const aliasedContainmentSnapshot = aliasProvider.captureContainment({
 });
 assert.equal(provider.assertContainment(aliasedContainmentSnapshot), true,
   'canonical and aliased worktree paths must describe the same registration');
-fs.rmSync(projectAlias, { force: true });
+fs.rmSync(projectAlias, { force: true, recursive: true });
 const containedTree = provider.resolve(project, worktrees, 'fork-executors', 'branch-codex-hosted');
 const containedBranch = git(containedTree, ['rev-parse', '--abbrev-ref', 'HEAD']);
 git(containedTree, ['switch', '-c', 'rogue-containment']);

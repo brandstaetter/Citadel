@@ -1,7 +1,7 @@
 # opencode Runtime Support — Investigation and Plan
 
 Date: 2026-09-10
-Status: phases 1-4 landed; phase 5 is a checklist awaiting a Bun/opencode environment; phase 6 optional
+Status: phases 1-5 landed and live-verified on opencode 1.18.30 / Bun 1.4.2; phase 6 optional
 
 Verified against the opencode source at `anomalyco/opencode@dev` (shallow clone,
 2026-09-10), specifically `packages/plugin/src/index.ts`,
@@ -421,40 +421,196 @@ mutations were each confirmed to fail it — an `args`-key MCP config, a merge t
 drops user MCP servers, a merge that replaces the whole config, clobbering an
 unparseable `opencode.json`, and a dry run that writes anyway.
 
-**Phase 5 — live verification and docs. NOT STARTED.** Needs Bun and opencode
-actually installed, which the environment phases 1-4 were built in did not have.
+**Phase 5 — live verification and docs. DONE.** Run against **opencode 1.18.30,
+Bun 1.4.2, Node 24.12.0, Windows 11** on 2026-09-10, in a scratch project
+installed with `scripts/opencode-install.js`. The plan was written against
+`anomalyco/opencode@dev` as of 2026-09-10; 1.18.30 is the released build closest
+to it.
 
-Rewritten after phases 2-4, because the original plan for this phase listed
-checks that phases 2-4 now cover under plain Node — re-running them locally
-would prove nothing new. `scripts/test-opencode-adapter.js` already drives the
-real `hooks_src` processes and asserts that `protect-files` blocks a `.env` read
-and allows `README.md`, that `external-action-gate` blocks a force-push and
-`gh pr merge`, that an `apply_patch` touching `.env` is blocked per target, and
-that a missing or timed-out security hook fails closed.
+Method note: opencode's headless server (`opencode serve --print-logs
+--log-level DEBUG`) plus its HTTP API was used instead of the TUI, because it
+makes every claim observable — the log shows plugin load, `/agent`, `/skill` and
+`/command` enumerate what the `@` and `/` menus render, and `/session/{id}/
+prompt_async` drives a real turn. No Anthropic credentials were available, so a
+local Ollama model (`qwen3.5:9b`, registered through a `provider` block in the
+project's `opencode.json`) supplied the model-driven items. That is sufficient:
+every item here is about opencode's plumbing, not about model quality.
 
-What remains unverified is everything that only behaves differently *inside*
-opencode. Each item below is a claim made from reading opencode's source, never
-observed running:
+| # | Claim | Result |
+|---|---|---|
+| 1 | The plugin loads at all | **PASS** |
+| 2 | `resolveNodeBinary()` falls through to `which node` | **PASS** |
+| 3 | A thrown block reaches the model | **PASS** |
+| 4 | In-place `args` mutation is honored | **PASS** (both halves) |
+| 5 | Spawn latency is tolerable | **PASS**, ~50 ms per hook |
+| 6 | Agents render in the `@` menu | **PASS** |
+| 7 | Skills appear as commands | **MECHANISM PASSES, OUTCOME FAILS** |
+| 8 | Telemetry lands | **PASS** |
 
-| # | Claim to verify | Why it can only be checked under Bun | How to check |
-|---|---|---|---|
-| 1 | The plugin loads at all | `index.mjs` reaches the CommonJS runner through `createRequire`, which is untested under Bun. On failure opencode publishes a plugin error and continues **with no Citadel gating** — a silent fail-open | Start opencode in an installed project and read its log. Absence of errors in the TUI is not proof; look for the plugin error event |
-| 2 | `resolveNodeBinary()` falls through to `which node` | Under Bun `process.execPath` is the Bun binary, so the `basename === 'node'` branch never fires and the `which`/`where` probe is what actually runs | `node scripts/opencode-readiness-check.js` reports the resolved path; confirm it is a real Node, not Bun |
-| 3 | A thrown block reaches the model | The exit-2 → `throw` translation has never crossed into opencode's tool-result path | Ask opencode to read a `.env`; the `[protect-files] Blocked:` text should appear as the tool result, and the session must continue rather than dying |
-| 4 | In-place `args` mutation is honored | Read out of `session/tools.ts:104-112`; the reassign-is-discarded behavior is inferred, not observed | Have a hook rewrite `output.args.command` and confirm the tool runs the rewritten command |
-| 5 | Spawn latency is tolerable | ~30-60ms of Node startup per `pre_tool`, on every tool call. The one risk flagged in section 6 with no measurement | Time a session with several tool calls against the same session with `CITADEL_BUNDLES` trimmed; if it bites, a persistent hook worker is the follow-up |
-| 6 | Agents render in the `@` menu | The frontmatter shape is built from `config/agent.ts` and `ConfigAgentV1`, and the descriptions depend on the `parse-agent.js` fix | Open the `@` autocomplete and confirm the seven Citadel agents appear with short, readable descriptions |
-| 7 | Skills appear as commands | opencode is expected to register each `.claude/skills/**/SKILL.md` as a command (`command/index.ts:134`) with no projection | Confirm Citadel's skills are offered as slash commands, and that none is shadowed by a stale file |
-| 8 | Telemetry lands | Hooks write Citadel state as usual, but nothing has confirmed the project root reaches them correctly under opencode | Check `.planning/` for telemetry after a session, and that paths resolve to the project, not the Citadel checkout |
+The three blocking items (1-3) all pass, so the runtime contract's
+`hooks: partial` claim stands and needs no narrowing. Two new degradations were
+found and are recorded below.
 
-Also worth recording rather than fixing: which opencode bus events fire in
-practice, since the adapter's skip list is derived from the event map rather
-than from observation.
+**1 — plugin loads.** Positive evidence, not absence of errors. The plugin logs
+through opencode's own logger at init:
 
-*Exit:* `docs/OPENCODE_INSTALLATION_GUIDE.md` plus a recorded live-verify
-artifact, as `scripts/codex-live-verify.js` does for Codex. Items 1-3 are the
-blocking ones: if any fails, the runtime contract's `hooks: partial` claim is
-too generous and must be narrowed before this ships.
+```
+level=INFO message="citadel session start" messages="[\"[citadel] hooks ok (24 recent events), gates active, last verify: none\"]"
+```
+
+`createRequire` reaching the CommonJS runner works under Bun. Corroborated by
+side effect: a bare scratch project gained `.planning/`, `.citadel/` and
+`.claude/` at 17:31:38.5, filling the 9.6-second gap between config load
+(17:31:29.2) and `init` (17:31:38.9) — the `init-project` session-start hook
+running inside opencode's bootstrap.
+
+**2 — Node resolution.** `opencode-readiness-check.js` reports
+`node binary resolved for hooks — C:\nvm4w\nodejs\node.exe`. A real Node, not
+the Bun binary. The `basename === 'node'` branch never fires under Bun as
+predicted, and the `where`/`which` probe is what runs.
+
+**3 — a thrown block reaches the model.** A real turn, prompted to read `.env`:
+
+```
+TOOL read  status=error
+  input : {"filePath":"...\\oc-project\\.env"}
+  error : "[protect-files] Blocked: cannot read .env — .env files contain secrets."
+ASSISTANT: The `.env` file was blocked from being read by the security system...
+```
+
+The exit-2 to `throw` translation lands as a tool **error**, carries the hook's
+own stderr, the model reads it, and the session continues rather than dying.
+This also confirms the `filePath` to `file_path` canonicalization end to end.
+The block is recorded in `.planning/telemetry/hook-errors.jsonl` as
+`{"hook":"protect-files","action":"blocked","detail":"Read .env (.env secrets)"}`.
+
+**4 — in-place mutation, both halves.** Citadel's own adapter never rewrites
+args — `runHooksForEvent` blocks or appends messages, and the phase-3 test
+asserts only that the live reference survives. So this was verified with a
+standalone probe plugin on `tool.execute.before`, driving real model-issued
+`bash` calls:
+
+- `output.args.command = "echo MUTATION_HONORED_INPLACE"` — the tool ran the
+  rewritten command. **Honored.**
+- `output.args = { command: "echo MUTATION_HONORED_REPLACE" }` — the tool ran
+  the *original* `echo PROBE_REPLACE`. **Silently discarded.**
+
+The aliasing in `normalizeOpencodeHookInput` is load-bearing exactly as
+documented. Do not "clean it up".
+
+**5 — spawn latency, measured.** One Node process per matching hook, timed
+against the real plugin under Bun:
+
+| Tool | Hooks | Latency |
+|---|---|---|
+| `glob`, `grep`, `webfetch` | 0 | ~0 ms |
+| `read` | 1 (`protect-files`) | mean 51 ms |
+| `bash` | 2 (`external-action-gate`, `governance`) | mean 99 ms |
+| `edit`/`write` | 2 (`protect-files`, `governance`) | ~100 ms |
+
+Plugin init is 214 ms warm. Tools with no matching matcher cost nothing, which
+keeps the common read-only path free.
+
+*Correction to this item's suggested remedy.* The plan proposed comparing
+against a session with `CITADEL_BUNDLES` trimmed. That does nothing: every
+pre-tool hook is in `CORE_BUNDLE`, so a core-only selection picks exactly the
+same hooks for `Read`, `Bash`, `Edit` and `Write`. Bundle trimming is not a
+latency lever at pre-tool. A persistent hook worker is the only real follow-up.
+
+**6 — agents render.** `GET /agent` returns 14: opencode's five built-ins
+(`build`, `plan`, `compaction`, `summary`, `title`), its `explore` and `general`,
+and exactly the seven Citadel agents projected into `.opencode/agent`. All carry
+short readable descriptions. The `parse-agent.js` fix from phase 4 is confirmed
+live: arbiter's description is **611 characters**, matching the phase-4 note
+exactly, with no `"# model"` junk keys.
+
+**7 — skills. The mechanism works; the outcome does not.** This is the
+phase's contradiction, and the reason the item is not a plain PASS.
+
+`GET /skill` in the installed project returned 13 skills, and **not one was
+Citadel's**: twelve came from the user's global `~/.claude/skills`, one
+(`customize-opencode`) is an opencode built-in. The project had no
+`.claude/skills` directory at all.
+
+Section 1's table says skills need "none — opencode reads Citadel's existing
+`.claude/skills/` projection directly". **There is no such projection.**
+Citadel's 48 skills live in `Citadel/skills/`, and under Claude Code they reach
+a session through the plugin marketplace, which opencode has no equivalent of.
+Nothing in `opencode-install.js` writes them, and the Citadel repo itself has no
+`.claude/skills`. The consequence: a correct install yields zero Citadel skills
+and therefore zero Citadel slash commands.
+
+The reading of `command/index.ts` was right — copying one skill
+(`skills/architect`) into the project's `.claude/skills/` made opencode expose it
+both as a skill and as a command with `source: "skill"`, unshadowed, with the
+body as the template. Only the projection step is missing. Phase 4 was right to
+drop `project-commands.js`; what it needed instead, and does not have, is a
+*skills* projector. The installation guide documents the manual copy as the
+interim workaround.
+
+**8 — telemetry lands.** `.planning/telemetry/` in the **project** fills with
+`audit.jsonl`, `hook-timing.jsonl`, `hook-errors.jsonl`, `session-costs.jsonl`.
+Entries carry `"project":"oc-project"` and canonical tool names (`Bash`, not
+`bash`); no path resolves back to the Citadel checkout.
+
+**Which opencode events actually fire.** The plan asked for this to be recorded
+rather than fixed. Observed from `hook-timing.jsonl` over the session, every
+mapped event fired:
+
+| opencode | Citadel hook | Seen |
+|---|---|---|
+| plugin init | session-start chain | yes |
+| `tool.execute.before` | `protect-files`, `external-action-gate`, `governance` | yes |
+| `tool.execute.after` | observers | yes |
+| `chat.message` | `user-prompt-submit` | yes (x4) |
+| `session.idle` | `quality-gate` | yes (x10), observational |
+| `config` | `config-change` | yes (x5) |
+| `dispose` | `session-end` | yes (x3) |
+
+`intake-scanner` also ran (x6). Nothing in the map failed to fire.
+
+**Two new degradations, neither in the plan.**
+
+*The `!` shell bypasses the gate.* `POST /session/{id}/shell` — the TUI's
+`!command` — does **not** fire `tool.execute.before`. `git push --force origin
+main` issued through it ran ungated (it failed only on git's own refspec error),
+and a probe plugin on `tool.execute.before` recorded nothing for those calls.
+Section 2.2 lists four call sites and concludes "coverage of tool calls is
+complete"; the shell endpoint is a fifth path that does not go through the tool
+wrapper. This does not weaken gating of *agent* actions — model-issued `bash`
+goes through the wrapper and is gated, verified in item 4 — but a human typing
+`!` is outside Citadel's reach on this runtime. Worth a `degradations` entry.
+
+*Plugin discovery is per process, not per instance.* Dropping a new plugin into
+`.opencode/plugin/` and recreating the project instance via `/instance/dispose`
+re-runs each **already-loaded** plugin's init but does not rescan the directory
+— the new plugin never loaded, and, exactly as trap 1 warns, said nothing. Only
+a full opencode restart picked it up. Installing Citadel into a project while
+opencode is running therefore leaves the session ungated with no error. The
+installation guide says to restart.
+
+**Guidance has the same gap as skills, and the readiness check cannot pass.**
+`runtimes/opencode/guidance/render.js` exists and exports a working
+`OPENCODE_GUIDANCE_TARGET`, but `opencode-install.js` never invokes it — section
+1 and the installer both file guidance under "no projection". Rendering it would
+also need a `.citadel/project.md` spec, which the opencode install path does not
+create: the scratch project's `.citadel/` held only `plugin-root.txt`, `scripts/`
+and `version.txt`. The renderer is therefore currently unreachable code.
+
+The consequence is worth stating plainly: `opencode-readiness-check.js` asserts
+`guidance file present` and `skills discoverable by opencode`, and the installer
+deliberately produces neither, so **a fresh correct install fails its own
+readiness check and the script exits 1**. Either the installer should project
+both, or the check should mark them advisory. That is a phase-4 decision to
+revisit, not something phase 5 changed.
+
+*Exit met:* `docs/OPENCODE_INSTALLATION_GUIDE.md` written from these
+observations. Items 1-3 pass, so `hooks: partial` stands unchanged;
+`shell-endpoint-not-gated` and `plugin-discovery-requires-restart` were added to
+the runtime contract's `degradations`, which was the only code change this phase
+made. The skills gap (7), the guidance gap, and the readiness-check
+contradiction are the follow-ups this phase surfaced; none blocks the runtime,
+and all are documented.
 
 **Phase 6 (optional) — Stop recovery.** Deferred gate injection via
 `chat.message`; re-prompt via `ctx.client` behind a config flag and a
