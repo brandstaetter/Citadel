@@ -88,7 +88,7 @@ function testGeneratedCodexArtifacts() {
     assert(firstPluginHook, 'plugin hooks should include generated PLUGIN_ROOT commands');
     const firstCommand = firstPluginHook.command;
     assert(firstCommand.includes('${PLUGIN_ROOT}'), 'plugin hook command should use PLUGIN_ROOT');
-    assert(firstPluginHook.commandWindows.includes('%PLUGIN_ROOT%'), 'plugin hook commandWindows should use PLUGIN_ROOT');
+    assert(firstPluginHook.commandWindows.includes('process.env.PLUGIN_ROOT'), 'plugin hook commandWindows should use PLUGIN_ROOT');
 
     const fleetAgent = fs.readFileSync(path.join(tmp, '.codex', 'agents', 'fleet.toml'), 'utf8');
     assert(fleetAgent.includes('developer_instructions'), 'Codex fleet agent projection must include developer instructions');

@@ -127,7 +127,11 @@ function translateCodexHooks(hooksTemplate, adapterScriptPath, options = {}) {
 function translateCodexPluginHooks(hooksTemplate) {
   return translateCodexHooks(hooksTemplate, '${PLUGIN_ROOT}/hooks_src/codex-adapter.js', {
     commandForHook: (hookName) => `node "\${PLUGIN_ROOT}/hooks_src/codex-adapter.js" ${hookName}`,
-    commandWindowsForHook: (hookName) => `node "%PLUGIN_ROOT%\\hooks_src\\codex-adapter.js" ${hookName}`,
+    // Codex can run Windows hooks in PowerShell or cmd.exe. Resolve the path
+    // in Node so neither shell has to expand an environment variable.
+    // PowerShell also collapses native exit 2 to 1; use the equivalent native
+    // Codex JSON denial for security blocks in this Windows entry point.
+    commandWindowsForHook: (hookName) => `node -e "require(require('path').join(process.env.PLUGIN_ROOT,'hooks_src','codex-adapter.js')).main(process.argv[1],{structuredSecurityBlocks:true})" ${hookName}`,
   });
 }
 
