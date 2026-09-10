@@ -40,6 +40,43 @@ function main() {
   if (origEnv !== undefined) process.env.CITADEL_RUNTIME = origEnv;
   else delete process.env.CITADEL_RUNTIME;
 
+
+  // Exercise process probing and fallback without depending on host tooling.
+  const assert = require('assert');
+  const vm = require('vm');
+  const source = require('fs').readFileSync(path.join(__dirname, '..', 'core', 'runtime', 'detect-runtime.js'), 'utf8');
+  for (const platform of ['win32', 'linux']) {
+    for (const probeFails of [false, true]) {
+      const calls = [];
+      const exported = { exports: {} };
+      vm.runInNewContext(source, {
+        module: exported,
+        process: { platform, ppid: 4321, env: {}, cwd: () => '/project with spaces' },
+        require: (name) => {
+          if (name === './registry') return { listRuntimeIds };
+          if (name === 'path') return path;
+          if (name === 'fs') return { existsSync: (target) => target.endsWith('.codex') };
+          if (name === 'child_process') return {
+            execFileSync: (file, args, options) => {
+              calls.push([file, Array.from(args)]);
+              assert.notEqual(options.shell, true);
+              if (probeFails || file === 'wmic') throw new Error('probe unavailable');
+              return 'codex';
+            },
+          };
+          throw new Error('Unexpected dependency: ' + name);
+        },
+      });
+      const result = exported.exports.detectRuntime();
+      assert.equal(result.runtime, 'codex');
+      assert.equal(result.method, probeFails ? 'directory-marker' : 'process-tree');
+      assert.deepEqual(calls, platform === 'win32' ? [
+        ['wmic', ['process', 'where', 'ProcessId=4321', 'get', 'CommandLine', '/format:list']],
+        ['tasklist', ['/FI', 'PID eq 4321', '/FO', 'CSV', '/NH']],
+      ] : [['ps', ['-p', '4321', '-o', 'command=']]]);
+    }
+  }
+
   console.log('Runtime registry tests pass.');
 }
 

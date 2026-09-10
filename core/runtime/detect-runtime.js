@@ -4,7 +4,7 @@
 
 const fs = require('fs');
 const path = require('path');
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const { listRuntimeIds } = require('./registry');
 
 const VALID_RUNTIMES = listRuntimeIds();
@@ -22,19 +22,19 @@ function detectRuntime(projectRoot) {
     let parentInfo = '';
     if (isWin) {
       try {
-        parentInfo = execSync(
-          `wmic process where "ProcessId=${process.ppid}" get CommandLine /format:list`,
+        parentInfo = execFileSync(
+          'wmic', ['process', 'where', `ProcessId=${process.ppid}`, 'get', 'CommandLine', '/format:list'],
           { encoding: 'utf8', timeout: 3000, stdio: ['pipe', 'pipe', 'pipe'] }
         ).toLowerCase();
       } catch {
-        parentInfo = execSync(
-          `tasklist /FI "PID eq ${process.ppid}" /FO CSV /NH`,
+        parentInfo = execFileSync(
+          'tasklist', ['/FI', `PID eq ${process.ppid}`, '/FO', 'CSV', '/NH'],
           { encoding: 'utf8', timeout: 3000, stdio: ['pipe', 'pipe', 'pipe'] }
         ).toLowerCase();
       }
     } else {
-      parentInfo = execSync(
-        `ps -p ${process.ppid} -o command= 2>/dev/null || true`,
+      parentInfo = execFileSync(
+        'ps', ['-p', String(process.ppid), '-o', 'command='],
         { encoding: 'utf8', timeout: 3000, stdio: ['pipe', 'pipe', 'pipe'] }
       ).toLowerCase();
     }
