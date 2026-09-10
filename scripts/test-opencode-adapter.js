@@ -224,7 +224,7 @@ async function testApplyPatchIsGated(root) {
 // back to opencode's defaults, which allow edits and shell.
 function testAgentToolRestrictionsProject() {
   const agents = require(path.join(__dirname, '..', 'runtimes', 'opencode', 'generators', 'project-agents'));
-  const { opencodePermissionsFor, renderOpencodeAgent } = agents;
+  const { opencodePermissionsFor, renderOpencodeAgent, CITADEL_STATE_TOOL_PATTERN: STATE_MCP } = agents;
 
   // The canonical read-only reviewer: an allow-list of read tools plus an
   // explicit deny-list.
@@ -233,28 +233,28 @@ function testAgentToolRestrictionsProject() {
       tools: ['Read', 'Grep', 'Glob'],
       disallowedTools: ['Edit', 'Write', 'Bash', 'NotebookEdit'],
     }),
-    { edit: 'deny', bash: 'deny', webfetch: 'deny', task: 'deny', skill: 'deny' },
+    { edit: 'deny', bash: 'deny', webfetch: 'deny', task: 'deny', skill: 'deny', [STATE_MCP]: 'deny' },
     'a read-only reviewer must deny everything its allow-list does not grant',
   );
 
   // An allow-list is exhaustive on its own: anything unnamed is not granted.
   assert.deepStrictEqual(
     opencodePermissionsFor({ tools: ['Read', 'Grep', 'Glob'] }),
-    { edit: 'deny', bash: 'deny', webfetch: 'deny', task: 'deny', skill: 'deny' },
+    { edit: 'deny', bash: 'deny', webfetch: 'deny', task: 'deny', skill: 'deny', [STATE_MCP]: 'deny' },
     'an allow-list alone must still withhold what it does not name',
   );
 
   // ...but it must not over-deny what it does grant.
   assert.deepStrictEqual(
     opencodePermissionsFor({ tools: ['Read', 'Glob', 'Grep', 'Bash'] }),
-    { edit: 'deny', webfetch: 'deny', task: 'deny', skill: 'deny' },
+    { edit: 'deny', webfetch: 'deny', task: 'deny', skill: 'deny', [STATE_MCP]: 'deny' },
     'a tool the allow-list grants must not be denied',
   );
 
   // A deny-list alone is honoured.
   assert.deepStrictEqual(
     opencodePermissionsFor({ disallowedTools: ['Bash'] }),
-    { bash: 'deny' },
+    { bash: 'deny', [STATE_MCP]: 'deny' },
     'a deny-list alone must be honoured',
   );
 
@@ -270,7 +270,7 @@ function testAgentToolRestrictionsProject() {
   // Write-only restriction must still land somewhere.
   assert.deepStrictEqual(
     opencodePermissionsFor({ disallowedTools: ['Write'] }),
-    { edit: 'deny' },
+    { edit: 'deny', [STATE_MCP]: 'deny' },
     'Write must map onto opencode edit, which is what actually gates it',
   );
 
@@ -350,6 +350,7 @@ function testAgentToolRestrictionsProject() {
   assert.match(rendered, /^ {2}webfetch: deny$/m);
   assert.match(rendered, /^ {2}task: deny$/m);
   assert.match(rendered, /^ {2}skill: deny$/m);
+  assert.match(rendered, /^ {2}"citadel-state_\*": deny$/m, 'the MCP key must be emitted quoted');
   // The block belongs to the frontmatter, not the body.
   const frontmatterOf = rendered.split('---')[1] || '';
   assert.match(frontmatterOf, /permission:/, 'the permission block must be inside the frontmatter');
@@ -379,6 +380,74 @@ function testAgentToolRestrictionsProject() {
     assert.equal(permissions.read, undefined, `${name} must keep the read access it was granted`);
     assert.equal(permissions.grep, undefined, `${name} must keep grep`);
     assert.equal(permissions.glob, undefined, `${name} must keep glob`);
+  }
+}
+
+// The server does not know which agent is calling it, so the only thing keeping a
+// reviewer from submitting a control intent is that the tool is withheld. This
+// runs the real server so the pattern is checked against the names opencode will
+// actually see, not a list copied into the test.
+async function testRestrictedAgentsCannotReachCitadelState() {
+  const agents = require(path.join(__dirname, '..', 'runtimes', 'opencode', 'generators', 'project-agents'));
+  const { MCP_SERVER_NAME } = require(path.join(__dirname, '..', 'runtimes', 'opencode', 'generators', 'install-plugin'));
+  const { opencodePermissionsFor, renderOpencodeAgent, CITADEL_STATE_TOOL_PATTERN } = agents;
+  const parse = require(path.join(__dirname, '..', 'core', 'agents', 'parse-agent'));
+  const { spawn } = require('child_process');
+
+  const listed = await new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [path.join(__dirname, '..', 'mcp-servers', 'citadel-state', 'index.js')], {
+      env: { ...process.env, CITADEL_PROJECT_ROOT: fs.mkdtempSync(path.join(os.tmpdir(), 'citadel-mcp-gate-')) },
+      stdio: ['pipe', 'pipe', 'ignore'],
+    });
+    const timer = setTimeout(() => { child.kill(); reject(new Error('citadel-state tools/list timed out')); }, 15000);
+    let stdout = '';
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (chunk) => {
+      stdout += chunk;
+      const line = stdout.split('\n').find((candidate) => candidate.includes('"id":1'));
+      if (!line) return;
+      clearTimeout(timer);
+      child.kill();
+      resolve(JSON.parse(line).result.tools.map((tool) => tool.name));
+    });
+    child.on('error', reject);
+    child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} })}\n`);
+  });
+
+  // opencode's own naming and matching: `<server>_<tool>` with anything outside
+  // [A-Za-z0-9_-] replaced, and a permission key where `*` matches any run.
+  const sanitize = (name) => name.replace(/[^a-zA-Z0-9_-]/g, '_');
+  const opencodeIds = listed.map((name) => `${sanitize(MCP_SERVER_NAME)}_${sanitize(name)}`);
+  const pattern = new RegExp(`^${CITADEL_STATE_TOOL_PATTERN.split('*').map((part) => part.replace(/[.+?^${}()|[\]\\]/g, '\\$&')).join('.*')}$`);
+
+  assert(opencodeIds.includes('citadel-state_citadel_intent_submit'), 'the intent tool must be among the listed tools');
+  assert(opencodeIds.some((id) => id.startsWith('citadel-state_citadel_operation_')), 'the operation control tools must be listed');
+  for (const id of opencodeIds) assert.match(id, pattern, `${id} escapes the citadel-state deny`);
+  // A key that gates a built-in would break the agent rather than bound it.
+  for (const builtIn of ['read', 'grep', 'glob', 'edit', 'bash', 'task', 'skill', 'webfetch', 'todowrite', 'apply_patch', 'list_mcp_resources']) {
+    assert.doesNotMatch(builtIn, pattern, `the citadel-state deny must not reach built-in ${builtIn}`);
+  }
+
+  const agentsDir = path.join(__dirname, '..', 'agents');
+  const permissionsOf = (name) => opencodePermissionsFor(
+    parse.parseAgentFrontmatter(fs.readFileSync(path.join(agentsDir, `${name}.md`), 'utf8')),
+  );
+
+  for (const name of ['arch-reviewer', 'policy-enforcer', 'phase-validator', 'knowledge-extractor', 'arbiter']) {
+    assert.equal(
+      permissionsOf(name)[CITADEL_STATE_TOOL_PATTERN],
+      'deny',
+      `${name} must not be able to submit a control intent on opencode`,
+    );
+  }
+
+  // The orchestrators keep the server: nothing they project may match its tools.
+  for (const name of ['archon', 'fleet']) {
+    const permissions = permissionsOf(name);
+    assert.deepStrictEqual(permissions, {}, `${name} must project unrestricted`);
+    const parsed = parse.parseAgentFrontmatter(fs.readFileSync(path.join(agentsDir, `${name}.md`), 'utf8'));
+    const rendered = renderOpencodeAgent({ name, frontmatter: parsed, body: 'body' });
+    assert(!rendered.includes(MCP_SERVER_NAME), `${name} must not have citadel-state gated`);
   }
 }
 
@@ -896,6 +965,7 @@ async function main() {
     await testTimeoutEnforced(root);
     await testApplyPatchIsGated(root);
     testAgentToolRestrictionsProject();
+    await testRestrictedAgentsCannotReachCitadelState();
     await testPluginShim(root);
     await testDeferredGateReachesNextTurn();
     testRepromptPolicy();

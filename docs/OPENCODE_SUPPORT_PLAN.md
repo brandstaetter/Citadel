@@ -1078,11 +1078,51 @@ through the permissions above, so it is not an escape the way `task` was. It is
 denied anyway: "harmless in the cases we thought of" is not a reason to grant
 something the allow-list never granted.
 
-*`todowrite` and MCP tools are deliberately left ungated.* Citadel's agent
-frontmatter cannot name either, so denying them would not be exhaustiveness over
-the allow-list — it would be denying a capability the allow-list has no way to
-grant, and it would cut archon and fleet off from the citadel-state server they
-orchestrate through. They need a vocabulary before they get a gate.
+*MCP was the remaining path, caught in review.* The first version left MCP tools
+ungated on the grounds that frontmatter cannot name them. But opencode's default
+allows them, and `citadel-state_citadel_intent_submit` reached the adapter with
+no pre-tool matcher covering it. The server validates the intent, not the
+caller's role, so a read-only reviewer could write control intents.
+
+opencode gates an MCP tool by its `<server>_<tool>` name; the generic `mcp` key
+does not reach it. Probed live on 1.18.30, same prompt, local model:
+
+```
+no permission block          : all 9 citadel-state tools, citadel_status called
+"citadel-state_*": deny      : NONE
+"citadel-state_citadel_intent_submit": deny
+                             : the other 8 — an exact name withholds only itself
+mcp: deny (with the wildcard): resource tools still present
+```
+
+So any agent restricted in anything now also gets `"citadel-state_*": deny`.
+The wildcard covers control actions added later. archon and fleet grant every
+tool Citadel can name, project with no permission block, and keep the server.
+A test runs the real server's `tools/list`, checks that the wildcard covers every
+tool name as opencode derives it and no built-in, that every restricted
+shipped agent denies it, and that archon and fleet stay unrestricted.
+
+*Verified through the path Citadel actually uses.* Citadel agents are subagents,
+and `opencode run --agent arch-reviewer` does not run arch-reviewer: it prints
+`agent "arch-reviewer" is a subagent, not a primary agent. Falling back to default
+agent` and carries on as the default agent, with every tool. The first live check
+of the real projection fell into exactly this and appeared to show the deny
+failing. Driven through `task` from a primary instead:
+
+```
+task → arch-reviewer : NONE
+task → archon        : all 9 citadel-state tools, citadel_status called
+```
+
+Five more mutations were each confirmed to fail: dropping the deny, a misspelled
+server prefix, an over-broad `*`, gating the orchestrators too, and emitting the
+key unquoted.
+
+*Still ungated, deliberately.* `todowrite`, which frontmatter cannot name. And
+opencode's MCP resource tools — `list_mcp_resources`, `read_mcp_resource`,
+`list_mcp_resource_templates`: neither `mcp` nor their own names withheld them
+live. They are read-only, and citadel-state's one resource (`citadel://status`)
+is the same summary `citadel_status` returns.
 
 *One trap found while doing this.* opencode compiles **any** key in an agent's
 `permission` map into a rule, including nonsense: a probe declaring

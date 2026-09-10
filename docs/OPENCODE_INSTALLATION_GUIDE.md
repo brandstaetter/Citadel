@@ -311,12 +311,17 @@ exactly those and loses the rest.
 its caller's, so an agent that can delegate can have someone else do whatever it
 is forbidden to do itself.
 
-Two capabilities are **not** gated: `todowrite`, and MCP tools such as the
-citadel-state server. Citadel's agent frontmatter has no vocabulary for either —
-no agent can name them in `tools` — so denying them would not be exhaustiveness
-over the allow-list, it would be denying something the allow-list cannot grant,
-and it would cut the orchestrator agents off from the state server they work
-through. They need a way to be named before they can be gated.
+An agent restricted in anything also loses the **citadel-state MCP tools**, via
+`"citadel-state_*": deny`. Those tools can submit control intents, and the server
+checks the intent, not which agent sent it. opencode gates an MCP tool by its
+`<server>_<tool>` name; the generic `mcp` key does not reach it. `archon` and
+`fleet` grant every tool Citadel can name, project with no permission block, and
+keep the server.
+
+Not gated: `todowrite`, which Citadel's frontmatter cannot name, and opencode's
+read-only MCP resource tools (`list_mcp_resources`, `read_mcp_resource`,
+`list_mcp_resource_templates`), which no permission key withheld on 1.18.30.
+citadel-state's one resource is the same summary `citadel_status` returns.
 
 So `arch-reviewer` projects with:
 
@@ -327,6 +332,7 @@ permission:
   webfetch: deny
   task: deny
   skill: deny
+  "citadel-state_*": deny
 ```
 
 opencode withholds those tools from the agent entirely rather than refusing the
