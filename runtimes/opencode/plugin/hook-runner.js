@@ -263,6 +263,35 @@ function firstLine(text) {
   return String(text || '').trim().split('\n').find((line) => line.trim()) || '';
 }
 
+// Citadel hooks may answer on stdout with a JSON envelope rather than plain text:
+// `{hookSpecificOutput: {additionalContext}}` is how quality-gate reports findings
+// without blocking, `{decision: 'block', reason}` is its blocking form, and
+// `{hook, action, message}` is the CITADEL_UI shape. Surfacing the raw envelope
+// put a JSON blob in front of the model, so unwrap it to the human text.
+function messageFromStdout(stdout) {
+  const text = String(stdout || '').trim();
+  if (!text) return '';
+  if (!text.startsWith('{')) return firstLine(text);
+
+  let parsed;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return firstLine(text);
+  }
+  if (!parsed || typeof parsed !== 'object') return firstLine(text);
+
+  const candidates = [
+    parsed.hookSpecificOutput?.additionalContext,
+    parsed.reason,
+    parsed.message,
+  ];
+  const found = candidates.find((item) => typeof item === 'string' && item.trim());
+  // An envelope we do not recognize is dropped rather than shown raw: a JSON blob
+  // is noise to the model, and every shape Citadel hooks emit is handled above.
+  return found ? found.trim() : '';
+}
+
 /**
  * Run every Citadel hook registered for one opencode event.
  *
@@ -356,7 +385,7 @@ async function runHooksForEvent(opencodeEvent, payload, options = {}) {
         timedOut: result.timedOut,
       });
 
-      const reason = firstLine(result.stderr) || firstLine(result.stdout);
+      const reason = firstLine(result.stderr) || messageFromStdout(result.stdout);
 
       if (result.timedOut) {
         const message = `[citadel] ${hook.name} timed out after ${hook.timeoutMs}ms`;
@@ -381,7 +410,7 @@ async function runHooksForEvent(opencodeEvent, payload, options = {}) {
       }
 
       if (result.status === 0) {
-        const note = firstLine(result.stdout);
+        const note = messageFromStdout(result.stdout);
         if (note) outcome.messages.push(note);
         continue;
       }
@@ -411,6 +440,7 @@ module.exports = Object.freeze({
   TEMPLATE_EVENT_BY_OPENCODE_EVENT,
   hookNameFromCommand,
   legacyPayloadsFor,
+  messageFromStdout,
   matcherMatches,
   parseApplyPatchOperations,
   resolveNodeBinary,

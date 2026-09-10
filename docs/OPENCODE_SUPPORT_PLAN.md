@@ -1,7 +1,7 @@
 # opencode Runtime Support — Investigation and Plan
 
 Date: 2026-09-10
-Status: phases 1-5 landed and live-verified on opencode 1.18.30 / Bun 1.4.2, with all three phase-5 follow-ups closed; phase 6 optional
+Status: phases 1-6 landed; 1-5 live-verified on opencode 1.18.30 / Bun 1.4.2, all three phase-5 follow-ups closed, phase 6 delivered by deferred injection (re-prompt deliberately declined)
 
 Verified against the opencode source at `anomalyco/opencode@dev` (shallow clone,
 2026-09-10), specifically `packages/plugin/src/index.ts`,
@@ -670,10 +670,51 @@ the resolution notes above. A default install passes all eight readiness checks.
 The runtime contract itself was unchanged by those fixes beyond the two
 degradations this phase added.
 
-**Phase 6 (optional) — Stop recovery.** Deferred gate injection via
-`chat.message`; re-prompt via `ctx.client` behind a config flag and a
-re-prompt cap.
-*Exit:* a failing quality gate demonstrably reaches the model on the next turn.
+**Phase 6 — Stop recovery. DONE, by deferred injection only.**
+
+opencode dispatches bus events fire-and-forget, so by the time `quality-gate` has
+a verdict the turn is over and nothing can be refused. Before this phase the
+verdict was *discarded*. Now it is persisted and delivered on the next turn.
+
+A prerequisite bug surfaced while wiring it. Citadel hooks answer on stdout with a
+JSON envelope, not plain text — `{hookSpecificOutput: {additionalContext}}` for a
+non-blocking finding, `{decision: 'block', reason}` for a blocking one,
+`{hook, action, message}` for the UI shape. The adapter was taking
+`firstLine(stdout)`, so the *raw JSON envelope* was what reached the model. The
+findings were already arriving, just unreadably. `messageFromStdout` now unwraps
+all three shapes, and an envelope it does not recognize is dropped rather than
+shown raw.
+
+`plugin/pending-notices.js` holds the store at
+`.planning/opencode/pending-notices.json`. Notices are deduped by content, because
+`session.idle` fired ten times in the phase-5 session and the verdict is usually
+identical — without dedupe the model would see ten copies. They are capped at 20,
+newest kept, so a long session cannot build an unbounded prompt injection, and
+each notice is truncated at 4000 characters. A corrupt store reads as empty rather
+than throwing: losing a deferred notice is bad, breaking the session is worse.
+Draining happens after the caller has the contents, so a render failure cannot
+lose them.
+
+*Re-prompt via `ctx.client` was deliberately not implemented.* The plan said
+"validate first", and this environment has neither Bun nor opencode nor model
+credentials, so it cannot be validated here. It would drive real model turns and
+spend tokens autonomously, and the loop guard — cap per session, never re-prompt a
+re-prompt — is both the dangerous part and exactly what cannot be tested without a
+live session. Shipping an unvalidated autonomous re-prompt loop would be worse
+than not shipping it. The stated exit condition does not require it.
+
+The runtime contract is unchanged: `stop-cannot-block` still holds, because a
+finding delivered on the next turn is delivery, not enforcement. Claiming
+otherwise would be the kind of over-statement this document exists to prevent.
+
+*Exit met:* `scripts/test-opencode-adapter.js` drives the real `quality-gate` hook
+against a fixture with a genuine violation, confirms the finding is human text
+rather than a JSON blob, fires `session.idle` twice and asserts one notice is
+recorded, then asserts the finding is pushed onto the next `chat.message`'s
+existing parts array and not repeated on the turn after. Seven mutations were each
+confirmed to fail: showing the envelope raw, removing the dedupe, removing the
+cap, a drain that does not clear, a corrupt store that throws, not persisting idle
+findings, and replacing `output.parts` instead of pushing.
 
 ## 6. Risks
 

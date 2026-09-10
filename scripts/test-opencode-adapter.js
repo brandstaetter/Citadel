@@ -11,6 +11,7 @@ const os = require('os');
 const path = require('path');
 
 const runner = require(path.join(__dirname, '..', 'runtimes', 'opencode', 'plugin', 'hook-runner'));
+const notices = require(path.join(__dirname, '..', 'runtimes', 'opencode', 'plugin', 'pending-notices'));
 
 function tempProject() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'citadel-opencode-'));
@@ -280,10 +281,143 @@ async function testPluginShim(root) {
   }
 }
 
+// Citadel hooks answer on stdout with a JSON envelope, not plain text. Before this
+// was unwrapped, the adapter put the raw `{"hookSpecificOutput":{...}}` blob in
+// front of the model.
+function testStdoutEnvelopeUnwrapping() {
+  const gateNonBlocking = JSON.stringify({
+    hookSpecificOutput: { hookEventName: 'Stop', additionalContext: '[Quality Gate] 2 issue(s)' },
+  });
+  assert.equal(runner.messageFromStdout(gateNonBlocking), '[Quality Gate] 2 issue(s)');
+
+  const gateBlocking = JSON.stringify({ decision: 'block', reason: 'fix these first' });
+  assert.equal(runner.messageFromStdout(gateBlocking), 'fix these first');
+
+  const uiShape = JSON.stringify({ hook: 'protect-files', action: 'blocked', message: 'cannot read .env' });
+  assert.equal(runner.messageFromStdout(uiShape), 'cannot read .env');
+
+  // Plain text keeps working, and an envelope with no human text is dropped rather
+  // than shown raw.
+  assert.equal(runner.messageFromStdout('just a line\nand another'), 'just a line');
+  assert.equal(runner.messageFromStdout('{"unrecognized":true}'), '');
+  assert.equal(runner.messageFromStdout('{not json'), '{not json');
+  assert.equal(runner.messageFromStdout(''), '');
+  assert.equal(runner.messageFromStdout(undefined), '');
+}
+
+function testPendingNoticeStore() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'citadel-notices-'));
+  try {
+    assert.deepStrictEqual(notices.peek(root), [], 'an absent store reads as empty');
+    assert.deepStrictEqual(notices.drain(root), [], 'draining nothing is not an error');
+
+    const added = notices.record(root, 'session.idle', ['finding one']);
+    assert.equal(added.length, 1);
+
+    // session.idle fires repeatedly with the same verdict, so identical findings
+    // must not stack: the model would otherwise see N copies.
+    assert.deepStrictEqual(notices.record(root, 'session.idle', ['finding one']), []);
+    assert.equal(notices.peek(root).length, 1);
+
+    notices.record(root, 'session.idle', ['finding two']);
+    assert.equal(notices.peek(root).length, 2);
+
+    // A long session must not accumulate an unbounded prompt injection.
+    for (let i = 0; i < notices.MAX_NOTICES + 5; i += 1) {
+      notices.record(root, 'session.idle', [`bulk ${i}`]);
+    }
+    assert.equal(notices.peek(root).length, notices.MAX_NOTICES);
+    // The newest survive: a stale finding is less useful than the current one.
+    assert(notices.peek(root).some((item) => item.text.includes(`bulk ${notices.MAX_NOTICES + 4}`)));
+
+    // Draining delivers once.
+    const drained = notices.drain(root);
+    assert.equal(drained.length, notices.MAX_NOTICES);
+    assert.deepStrictEqual(notices.peek(root), []);
+
+    // Oversized text is truncated rather than injected whole.
+    notices.record(root, 'session.idle', ['x'.repeat(notices.MAX_TEXT_LENGTH + 500)]);
+    assert.equal(notices.peek(root)[0].text.length, notices.MAX_TEXT_LENGTH);
+
+    // A corrupt store must not break a turn.
+    fs.writeFileSync(notices.storePath(root), '{ not json');
+    assert.deepStrictEqual(notices.peek(root), [], 'a corrupt store reads as empty');
+    assert.equal(notices.record(root, 'session.idle', ['after corruption']).length, 1);
+
+    // Empty and non-string inputs are ignored.
+    assert.deepStrictEqual(notices.record(root, 'session.idle', ['  ', null, undefined]), []);
+
+    // The rendered text must say why it is arriving late.
+    const rendered = notices.renderForPrompt([{ text: 'the finding' }]);
+    assert(rendered.includes('the finding'));
+    assert(/cannot block/i.test(rendered), 'the injection must explain why it is late');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+// Phase 6's exit condition, end to end against the real quality-gate hook: a
+// failing gate at the end of one turn reaches the model on the next.
+async function testDeferredGateReachesNextTurn() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'citadel-deferred-'));
+  try {
+    // quality-gate only reports on files git sees as changed, and only for rules
+    // the project enables — builtIn defaults to empty once normalized.
+    fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
+    fs.writeFileSync(path.join(root, '.claude', 'harness.json'), JSON.stringify({
+      version: 1,
+      qualityRules: { builtIn: ['no-confirm-alert'], custom: [], blocking: false },
+    }));
+    const git = (args) => require('child_process').execFileSync('git', args, { cwd: root, stdio: 'ignore' });
+    git(['init', '-q']);
+    fs.writeFileSync(path.join(root, 'ui.js'), 'function save() { confirm("sure?"); }\n');
+    git(['add', '-A']);
+    git(['-c', 'user.email=t@t', '-c', 'user.name=t', 'commit', '-qm', 'init']);
+    fs.appendFileSync(path.join(root, 'ui.js'), 'function more() { alert("hi"); }\n');
+
+    // The gate must actually have something to say, or the test proves nothing.
+    const idle = await runner.runHooksForEvent('session.idle', { directory: root }, { projectRoot: root });
+    assert.equal(idle.blocked, false, 'session.idle can never block on opencode');
+    assert(idle.messages.length > 0, 'the gate must report a finding for this fixture');
+    assert(idle.messages[0].includes('[Quality Gate]'), `unexpected finding: ${idle.messages[0]}`);
+    assert(!idle.messages[0].startsWith('{'), 'the finding must be human text, not a JSON envelope');
+
+    const { CitadelPlugin } = await import(
+      `../runtimes/opencode/plugin/index.mjs?deferred=${Date.now()}`
+    );
+    const plugin = await CitadelPlugin({ directory: root, worktree: root });
+
+    // Turn one ends. opencode fires session.idle several times.
+    await plugin.event({ event: { type: 'session.idle', properties: {} } });
+    await plugin.event({ event: { type: 'session.idle', properties: {} } });
+    assert.equal(notices.peek(root).length, 1, 'repeated idle events must record one notice');
+
+    // Turn two begins: the finding is handed to the model.
+    const parts = [{ type: 'text', text: 'the next prompt' }];
+    const output = { message: {}, parts };
+    await plugin['chat.message']({ sessionID: 's' }, output);
+
+    assert.strictEqual(output.parts, parts, 'output.parts must not be replaced');
+    assert.equal(parts.length, 2, 'the finding must be pushed onto the existing array');
+    assert(parts[1].text.includes('[Quality Gate]'), 'the gate finding must reach the next turn');
+    assert(/cannot block/i.test(parts[1].text), 'the injection must explain the delay');
+
+    // Delivered once: a second turn must not repeat it.
+    assert.deepStrictEqual(notices.peek(root), [], 'the store must be drained');
+    const parts2 = [{ type: 'text', text: 'turn three' }];
+    await plugin['chat.message']({ sessionID: 's' }, { message: {}, parts: parts2 });
+    assert.equal(parts2.length, 1, 'a delivered finding must not be repeated');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
 async function main() {
   const root = tempProject();
   try {
     testNodeBinaryResolution();
+    testStdoutEnvelopeUnwrapping();
+    testPendingNoticeStore();
     testApplyPatchProjection();
     await testEventCoverage();
     await testSecurityBlock(root);
@@ -292,6 +426,7 @@ async function main() {
     await testTimeoutEnforced(root);
     await testApplyPatchIsGated(root);
     await testPluginShim(root);
+    await testDeferredGateReachesNextTurn();
     console.log('opencode adapter tests pass.');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });

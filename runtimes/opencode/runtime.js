@@ -12,9 +12,9 @@ module.exports = Object.freeze({
   displayName: 'opencode',
   capabilities: {
     guidance: { support: 'full', notes: 'Reads AGENTS.md and CLAUDE.md natively, so Citadel guidance projects with no extra renderer.' },
-    skills: { support: 'full', notes: 'Discovers .claude/skills, .agents/skills, and .opencode/{skill,skills} SKILL.md trees, so Citadel skill projections are read as-is.' },
+    skills: { support: 'full', notes: 'Discovers .claude/skills, .agents/skills and .opencode/{skill,skills} trees, plus every path in opencode.json skills.paths. Citadel adds its own skills directory there, so all skills are read from the checkout with nothing copied, and each also becomes a slash command.' },
     agents: { support: 'full', notes: 'Loads markdown agents from .opencode/{agent,agents} and supports native subagents via the task tool.' },
-    hooks: { support: 'partial', notes: 'Plugin hooks cover pre-tool gating (throw blocks the call, before the tool permission prompt), post-tool, prompt, compaction, and config; Stop and permission events are observe-only and batch/failure events have no equivalent.' },
+    hooks: { support: 'partial', notes: 'Plugin hooks cover pre-tool gating (throw blocks the call, before the tool permission prompt), post-tool, prompt, compaction, and config; Stop and permission events are observe-only and batch/failure events have no equivalent. Stop findings are deferred into the next turn rather than discarded, which is delivery, not enforcement.' },
     workspace: { support: 'full', notes: 'Standard file and shell workflow available, plus a shell.env hook for injecting environment into every shell execution.' },
     worktrees: { support: 'partial', notes: 'Exposes an experimental workspace adapter registration API; Citadel-managed worktrees remain the supported path.' },
     approvals: { support: 'partial', notes: 'The permission.ask hook is declared but never triggered upstream, so Citadel gates on pre-tool instead and treats permission events as observational.' },
@@ -25,6 +25,9 @@ module.exports = Object.freeze({
   },
   degradations: [
     'plugin-adapter-required-for-hook-parity',
+    // Still accurate after the phase-6 deferred delivery: a stop-time finding
+    // reaches the model on the *next* turn, so it is never enforced before the
+    // turn ends. Delivery late is not the same as blocking.
     'stop-cannot-block',
     'permission-gate-not-native',
     'no-batch-or-failure-events',

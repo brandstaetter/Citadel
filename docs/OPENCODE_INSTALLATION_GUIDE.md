@@ -211,6 +211,22 @@ exit non-zero too, which is what you want in CI.
 Earlier builds marked all eight checks alike, so a correct install failed its own
 verification and exited 1.
 
+## Quality-gate findings arrive one turn late
+
+opencode dispatches bus events fire-and-forget, so `session.idle` cannot refuse
+anything — by the time `quality-gate` has a verdict the turn is already over.
+Rather than discard it, the plugin persists the finding to
+`.planning/opencode/pending-notices.json` and pushes it into the next turn's
+prompt, prefixed with a note explaining why it is arriving late.
+
+So a violation you introduce in one turn is raised at the start of the next. That
+is delivery, not enforcement: nothing stops the turn that introduced it, which is
+why `stop-cannot-block` remains a declared degradation.
+
+Findings are deduped by content — `session.idle` fires many times per session and
+usually says the same thing — capped at 20 notices, and delivered once. The store
+is safe to delete; you will simply lose any finding not yet delivered.
+
 ## Performance
 
 Each gated tool call spawns one Node process per matching hook. Measured on

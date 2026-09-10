@@ -23,6 +23,7 @@ import { createRequire } from 'node:module';
 
 const require = createRequire(import.meta.url);
 const runner = require('./hook-runner.js');
+const notices = require('./pending-notices.js');
 
 function blockedError(outcome) {
   const error = new Error(outcome.reason || '[citadel] blocked by a Citadel hook');
@@ -82,13 +83,24 @@ export const CitadelPlugin = async ({ project, directory, worktree, client } = {
 
     async 'chat.message'(input, output) {
       const outcome = await observe('chat.message', { ...input, directory: projectRoot }, options);
-      if (!outcome.messages.length) return;
+
+      // Deliver whatever the end of the previous turn could not. session.idle is
+      // dispatched fire-and-forget by opencode, so a stop-time finding cannot
+      // refuse anything; this is the turn where it reaches the model.
+      let deferred = [];
+      try {
+        deferred = notices.drain(projectRoot);
+      } catch { /* never break a turn over a notice */ }
+
+      const texts = [...outcome.messages];
+      if (deferred.length) texts.push(notices.renderForPrompt(deferred));
+      if (!texts.length) return;
 
       // Pushing onto the existing parts array injects context; replacing
       // output.parts would be discarded, because prompt.ts keeps iterating the
       // array it handed in.
       if (Array.isArray(output.parts)) {
-        output.parts.push({ type: 'text', text: outcome.messages.join('\n') });
+        output.parts.push({ type: 'text', text: texts.join('\n\n') });
       }
     },
 
@@ -106,7 +118,18 @@ export const CitadelPlugin = async ({ project, directory, worktree, client } = {
         ...(event.properties || {}),
         directory: projectRoot,
       }, options);
-      if (outcome.messages.length) await log('info', `citadel ${event.type}`, { messages: outcome.messages });
+      if (!outcome.messages.length) return;
+
+      // A stop-time finding would otherwise be discarded, because nothing awaits
+      // this handler and nothing can act on its result. Persist it so the next
+      // chat.message can hand it to the model. Deduped and capped in the store,
+      // because session.idle fires repeatedly with the same verdict.
+      if (event.type === 'session.idle') {
+        try {
+          notices.record(projectRoot, event.type, outcome.messages);
+        } catch { /* an undeliverable notice must not break the session */ }
+      }
+      await log('info', `citadel ${event.type}`, { messages: outcome.messages });
     },
 
     async dispose() {
