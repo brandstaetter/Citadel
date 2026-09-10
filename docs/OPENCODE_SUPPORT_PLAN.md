@@ -1,7 +1,7 @@
 # opencode Runtime Support — Investigation and Plan
 
 Date: 2026-09-10
-Status: phases 1-3 landed; phases 4-6 proposed
+Status: phases 1-4 landed; phases 5-6 proposed
 
 Verified against the opencode source at `anomalyco/opencode@dev` (shallow clone,
 2026-09-10), specifically `packages/plugin/src/index.ts`,
@@ -34,7 +34,7 @@ Non-hook surfaces are close to free:
 | Guidance | `AGENTS.md`, then `CLAUDE.md` (`session/instruction.ts:61-68`) | none — reuse Codex's `AGENTS.md` renderer |
 | Skills | `.claude/skills/**/SKILL.md`, `.agents/skills/**/SKILL.md`, `.opencode/{skill,skills}/**/SKILL.md` (`skill/index.ts:21-24,187-207`) | none — opencode reads Citadel's existing `.claude/skills/` projection directly |
 | Agents | `.opencode/{agent,agents}/**/*.md` (`config/agent.ts:13`) | thin projector, mirror `runtimes/codex/generators/project-agents.js` |
-| Commands | `.opencode/{command,commands}/**/*.md` | thin projector |
+| Commands | `.opencode/{command,commands}/**/*.md` | none — opencode registers every discovered skill as a command (`command/index.ts:134`), and an explicit command file *shadows* the skill, so projecting would risk overriding the live one |
 | MCP | `opencode.json` `mcp` block | config emit for `citadel-state`, `codebase-memory` |
 | Plugin install | `.opencode/{plugin,plugins}/*.{ts,js}` auto-discovered, or `plugin: []` in `opencode.json` (`config/config.ts:476`, `config/plugin.ts:21`) | emit one file |
 
@@ -199,7 +199,8 @@ runtimes/opencode/plugin/index.mjs                the adapter plugin
 runtimes/opencode/plugin/citadel-plugin.js        generated stub for .opencode/plugin/
 runtimes/opencode/generators/install-plugin.js    writes the stub + opencode.json
 runtimes/opencode/generators/project-agents.js    .opencode/agent/*.md
-runtimes/opencode/generators/project-commands.js  .opencode/command/*.md
+(no project-commands.js — opencode derives commands from skills, and an
+ explicit command file shadows the live skill)
 runtimes/opencode/guidance/render.js              re-export of the AGENTS.md renderer
 scripts/opencode-install.js                       install entry, mirrors codex-install.js
 scripts/opencode-readiness-check.js               verification
@@ -365,6 +366,60 @@ projectors, MCP config, `scripts/opencode-install.js`,
 `scripts/opencode-readiness-check.js`.
 *Exit:* `--dry-run` lists exact writes; `opencode:verify` passes on a scratch
 project.
+
+**Phase 4 — install and projection. DONE.** `scripts/opencode-install.js` writes
+`.opencode/plugin/citadel.js`, merges `opencode.json`, and projects agents into
+`.opencode/agent`. `scripts/opencode-readiness-check.js` verifies a project and
+ends with a live probe that the pre-tool gate actually refuses a `.env` read.
+`--runtime opencode` now works through `scripts/install.js`, and
+`core/cli/package-cli.js` recognizes the runtime, the `.opencode` marker, and
+probes the right binary — closing the gap phase 1 left open.
+
+Three corrections to the plan:
+
+*`project-commands.js` must not exist.* `command/index.ts:134-151` registers
+every discovered skill as a command (`source: "skill"`), and opencode already
+reads `.claude/skills/**/SKILL.md`, so all Citadel skills become opencode
+commands with no projection. Worse, the loop is `if (commands[item.name])
+continue` — an explicit command file **shadows** the skill, so a projected copy
+would go stale and silently override the live one. The generator was dropped and
+a test asserts the file stays absent.
+
+*The MCP config shape in the plan would have broken every install.* opencode's
+`McpLocalConfig` (`core/v1/config/mcp.ts`) takes a single `command` argv array —
+there is no `args` key — plus `environment` rather than `env`. It is a plain
+`Schema.Struct`, so an unknown key fails the decode and opencode hard-fails at
+startup. Asserted key by key in the tests.
+
+*Command frontmatter is strict where agent frontmatter is not.* `ConfigCommandV1`
+is a plain Struct and its loader throws `InvalidError` on an unknown key, while
+`ConfigAgentV1` carries a Record rest that folds unknown keys into `options`.
+Only agents are projected, so only the lenient surface is written — but the
+distinction matters for phase 6.
+
+The agent projector emits what opencode expects: the name comes from the
+filename (not frontmatter), the body is the prompt, and `mode: subagent`.
+`opencode.json` is merged key by key because it is user-owned and opencode
+hard-fails on invalid content; an unparseable file is refused rather than
+clobbered, and a second install is a no-op.
+
+**A pre-existing parser bug was fixed beyond this phase's scope**, because the
+projection put it in front of users: `core/agents/parse-agent.js` treated YAML
+`#` comments as keys (producing frontmatter entries literally named `"# model"`)
+and its folded-scalar regex swallowed trailing comments into `description`. The
+arbiter's description was 1408 characters of mostly YAML comments, and opencode
+shows `description` in its `@` autocomplete. Two precise fixes — skip comment
+lines when parsing keys, and terminate a folded scalar at a column-0 `#` — cut it
+to 611 characters and removed the junk keys. This also improves the existing
+Codex projection, which shared the bug; `test-codex-runtime`,
+`test-agent-projections`, and `test-codex-native-integrations` all still pass.
+
+*Exit met:* `--dry-run` lists exact writes and provably creates nothing;
+`opencode:verify` passes on a scratch project, including the live gate probe.
+`scripts/test-opencode-install.js` is registered in `test-all.js`, and five
+mutations were each confirmed to fail it — an `args`-key MCP config, a merge that
+drops user MCP servers, a merge that replaces the whole config, clobbering an
+unparseable `opencode.json`, and a dry run that writes anyway.
 
 **Phase 5 — live verification and docs.** Run the harness against real
 opencode: confirm `protect-files` blocks an `.env` read, `external-action-gate`

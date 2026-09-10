@@ -59,6 +59,8 @@
     "scripts/claude-install.js",
     "scripts/codex-compat.js",
     "scripts/codex-install.js",
+    "scripts/opencode-install.js",
+    "scripts/opencode-readiness-check.js",
     "scripts/codex-plugin-smoke.js",
     "scripts/codex-readiness-check.js",
     "scripts/codex-windows-check.js",

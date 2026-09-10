@@ -1,0 +1,137 @@
+#!/usr/bin/env node
+
+'use strict';
+
+// Verifies a project is actually ready to run Citadel under opencode, and says
+// plainly what is missing when it is not. Checks only things that are observably
+// true on disk — it never claims a capability opencode does not have.
+
+const fs = require('fs');
+const path = require('path');
+
+const { PLUGIN_STUB_NAME, MCP_SERVER_NAME } = require('../runtimes/opencode/generators/install-plugin');
+const { runHooksForEvent, resolveNodeBinary } = require('../runtimes/opencode/plugin/hook-runner');
+const runtime = require('../runtimes/opencode/runtime');
+
+const CITADEL_ROOT = path.resolve(__dirname, '..');
+
+function arg(argv, name, fallback = null) {
+  const inline = argv.find((item) => item.startsWith(`${name}=`));
+  if (inline) return inline.slice(name.length + 1);
+  const index = argv.indexOf(name);
+  return index >= 0 && argv[index + 1] ? argv[index + 1] : fallback;
+}
+
+function check(name, pass, detail) {
+  return { name, pass: Boolean(pass), detail: detail || '' };
+}
+
+async function collect(projectRoot) {
+  const checks = [];
+
+  const pluginPath = path.join(projectRoot, '.opencode', 'plugin', PLUGIN_STUB_NAME);
+  checks.push(check('plugin stub present', fs.existsSync(pluginPath), pluginPath));
+
+  const configPath = path.join(projectRoot, 'opencode.json');
+  let config = null;
+  if (fs.existsSync(configPath)) {
+    try {
+      config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+      checks.push(check('opencode.json parses', true, configPath));
+    } catch (error) {
+      checks.push(check('opencode.json parses', false, error.message));
+    }
+  } else {
+    checks.push(check('opencode.json parses', false, 'missing'));
+  }
+
+  const mcp = config?.mcp?.[MCP_SERVER_NAME];
+  checks.push(check(
+    'citadel-state MCP registered',
+    Boolean(mcp) && mcp.type === 'local' && Array.isArray(mcp.command),
+    mcp ? `type=${mcp.type} command=${Array.isArray(mcp.command) ? mcp.command.length + ' args' : typeof mcp.command}` : 'missing',
+  ));
+
+  // Guidance and skills are read natively, so their absence is a real gap even
+  // though Citadel projects nothing for them.
+  const guidance = ['AGENTS.md', 'CLAUDE.md'].find((name) => fs.existsSync(path.join(projectRoot, name)));
+  checks.push(check('guidance file present', Boolean(guidance), guidance || 'neither AGENTS.md nor CLAUDE.md'));
+
+  const skillsDir = path.join(projectRoot, '.claude', 'skills');
+  const skillCount = fs.existsSync(skillsDir)
+    ? fs.readdirSync(skillsDir, { withFileTypes: true }).filter((entry) => entry.isDirectory()).length
+    : 0;
+  checks.push(check('skills discoverable by opencode', skillCount > 0, `${skillCount} in .claude/skills`));
+
+  const agentDir = path.join(projectRoot, '.opencode', 'agent');
+  const agentCount = fs.existsSync(agentDir)
+    ? fs.readdirSync(agentDir).filter((name) => name.endsWith('.md')).length
+    : 0;
+  checks.push(check('agents projected', agentCount > 0, `${agentCount} in .opencode/agent`));
+
+  // The hooks have to actually run. Node resolution is the usual failure here,
+  // because under Bun process.execPath is the Bun binary.
+  const nodeBinary = resolveNodeBinary();
+  const nodeLooksRight = /node(\.exe)?$/i.test(nodeBinary);
+  checks.push(check('node binary resolved for hooks', nodeLooksRight, nodeBinary));
+
+  // End-to-end proof that the gate refuses something it must refuse.
+  const probeDir = fs.mkdtempSync(path.join(require('os').tmpdir(), 'citadel-oc-probe-'));
+  try {
+    fs.writeFileSync(path.join(probeDir, '.env'), 'SECRET=1\n');
+    const outcome = await runHooksForEvent('tool.execute.before', {
+      tool: 'read',
+      args: { filePath: path.join(probeDir, '.env') },
+      directory: probeDir,
+    }, { projectRoot: probeDir });
+    checks.push(check('pre-tool gate blocks a .env read', outcome.blocked, outcome.reason || 'not blocked'));
+  } finally {
+    fs.rmSync(probeDir, { recursive: true, force: true });
+  }
+
+  return checks;
+}
+
+function render(projectRoot, checks) {
+  const lines = [];
+  lines.push('Citadel opencode readiness');
+  lines.push('='.repeat(40));
+  lines.push(`project: ${projectRoot}`);
+  lines.push('');
+  for (const item of checks) {
+    lines.push(`  ${item.pass ? 'PASS' : 'FAIL'}  ${item.name}${item.detail ? ` — ${item.detail}` : ''}`);
+  }
+  lines.push('');
+  lines.push('Declared degradations (not failures — opencode cannot do these):');
+  for (const item of runtime.degradations) lines.push(`  - ${item}`);
+  return `${lines.join('\n')}\n`;
+}
+
+async function main() {
+  const argv = process.argv.slice(2);
+  const projectRoot = path.resolve(arg(argv, '--project-root', process.cwd()));
+  const checks = await collect(projectRoot);
+  const failed = checks.filter((item) => !item.pass);
+
+  if (argv.includes('--json')) {
+    process.stdout.write(`${JSON.stringify({
+      ok: failed.length === 0,
+      projectRoot,
+      citadelRoot: CITADEL_ROOT,
+      checks,
+      degradations: runtime.degradations,
+    }, null, 2)}\n`);
+  } else {
+    process.stdout.write(render(projectRoot, checks));
+  }
+  return failed.length === 0 ? 0 : 1;
+}
+
+if (require.main === module) {
+  main().then((code) => process.exit(code)).catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}
+
+module.exports = Object.freeze({ collect, render });
