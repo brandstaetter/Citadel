@@ -13,6 +13,33 @@ const path = require('path');
 const runner = require(path.join(__dirname, '..', 'runtimes', 'opencode', 'plugin', 'hook-runner'));
 const notices = require(path.join(__dirname, '..', 'runtimes', 'opencode', 'plugin', 'pending-notices'));
 
+// The identity fields opencode's Part schema requires, and the id shapes it
+// actually produces. Copied from a live 1.18.30 chat.message payload rather than
+// invented: a fixture without these passes a test that the real runtime 500s.
+const LIVE_SESSION = 'ses_f7397bd98ffeLPGvOZyadXx1vK';
+const LIVE_MESSAGE = 'msg_08c6a73ed001hbO4Sj5TbAB6aV';
+let livePartSeq = 0;
+
+function livePart(text) {
+  livePartSeq += 1;
+  return {
+    id: `prt_08c6a73ef001A3rbOphpakjt${String(livePartSeq).padStart(2, '0')}`,
+    sessionID: LIVE_SESSION,
+    messageID: LIVE_MESSAGE,
+    type: 'text',
+    text,
+  };
+}
+
+function assertValidPart(part) {
+  assert.match(part.id || '', /^prt/, 'a pushed part needs an id matching ^prt');
+  assert.equal(typeof part.sessionID, 'string', 'a pushed part needs a sessionID');
+  assert.equal(typeof part.messageID, 'string', 'a pushed part needs a messageID');
+  assert.equal(part.sessionID, LIVE_SESSION, 'sessionID must come from the live message');
+  assert.equal(part.messageID, LIVE_MESSAGE, 'messageID must come from the live message');
+  assert.equal(part.type, 'text');
+}
+
 function tempProject() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'citadel-opencode-'));
   fs.mkdirSync(path.join(root, '.opencode'), { recursive: true });
@@ -259,14 +286,23 @@ async function testPluginShim(root) {
     assert.match(afterOutput.output, /complexity-check/, 'findings must be appended to the output');
 
     // chat.message injects by pushing onto the existing parts array; replacing
-    // output.parts would be discarded by opencode.
+    // output.parts would be discarded by opencode. The parts opencode hands over
+    // are materialized Parts carrying id/sessionID/messageID, and the pushed one
+    // must carry them too -- a part without them fails the whole prompt request.
     nextOutcome = { blocked: false, reason: null, messages: ['[citadel] campaign note'], results: [], skipped: [] };
-    const parts = [{ type: 'text', text: 'hello' }];
-    const chatOutput = { message: {}, parts };
-    await plugin['chat.message']({ sessionID: 's' }, chatOutput);
+    const parts = [livePart('hello')];
+    const chatOutput = { message: { id: LIVE_MESSAGE, sessionID: LIVE_SESSION, role: 'user' }, parts };
+    await plugin['chat.message']({ sessionID: LIVE_SESSION, messageID: LIVE_MESSAGE }, chatOutput);
     assert.strictEqual(chatOutput.parts, parts, 'output.parts must not be replaced');
     assert.equal(parts.length, 2, 'context must be pushed onto the existing array');
     assert.match(parts[1].text, /campaign note/);
+    assertValidPart(parts[1]);
+
+    // Nothing to anchor an id to means the part cannot be built. Pushing a
+    // partial one 500s the turn, so the hook must push nothing at all.
+    const orphan = { message: {}, parts: [] };
+    await plugin['chat.message']({}, orphan);
+    assert.equal(orphan.parts.length, 0, 'no identity means no push');
 
     // A thrown runner must not break an observer path.
     require.cache[runnerPath].exports.runHooksForEvent = async () => { throw new Error('boom'); };
@@ -392,20 +428,27 @@ async function testDeferredGateReachesNextTurn() {
     await plugin.event({ event: { type: 'session.idle', properties: {} } });
     assert.equal(notices.peek(root).length, 1, 'repeated idle events must record one notice');
 
+    // A turn the finding cannot be injected into must keep it, not eat it.
+    const undeliverable = { message: {}, parts: [] };
+    await plugin['chat.message']({}, undeliverable);
+    assert.equal(undeliverable.parts.length, 0, 'no identity means no push');
+    assert.equal(notices.peek(root).length, 1, 'an undeliverable finding must survive the turn');
+
     // Turn two begins: the finding is handed to the model.
-    const parts = [{ type: 'text', text: 'the next prompt' }];
-    const output = { message: {}, parts };
-    await plugin['chat.message']({ sessionID: 's' }, output);
+    const parts = [livePart('the next prompt')];
+    const output = { message: { id: LIVE_MESSAGE, sessionID: LIVE_SESSION, role: 'user' }, parts };
+    await plugin['chat.message']({ sessionID: LIVE_SESSION, messageID: LIVE_MESSAGE }, output);
 
     assert.strictEqual(output.parts, parts, 'output.parts must not be replaced');
     assert.equal(parts.length, 2, 'the finding must be pushed onto the existing array');
     assert(parts[1].text.includes('[Quality Gate]'), 'the gate finding must reach the next turn');
     assert(/cannot block/i.test(parts[1].text), 'the injection must explain the delay');
+    assertValidPart(parts[1]);
 
     // Delivered once: a second turn must not repeat it.
     assert.deepStrictEqual(notices.peek(root), [], 'the store must be drained');
-    const parts2 = [{ type: 'text', text: 'turn three' }];
-    await plugin['chat.message']({ sessionID: 's' }, { message: {}, parts: parts2 });
+    const parts2 = [livePart('turn three')];
+    await plugin['chat.message']({ sessionID: LIVE_SESSION, messageID: LIVE_MESSAGE }, { message: {}, parts: parts2 });
     assert.equal(parts2.length, 1, 'a delivered finding must not be repeated');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });

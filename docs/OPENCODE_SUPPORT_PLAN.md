@@ -80,6 +80,12 @@ Three consequences that shape the adapter:
    injects context, *replacing* `output.parts` does not. This is a sharp edge
    worth a comment in the adapter and a regression test.
 
+   **The pushed part must be a materialized `Part`, not the input shape.**
+   Observed on 1.18.30 in phase 6: `output.parts` holds parts carrying `id`
+   (`^prt`), `sessionID` and `messageID`, and `createUserMessage` validates every
+   entry before saving. A part missing them does not degrade quietly — the whole
+   prompt request fails with HTTP 500 and the turn never runs. See phase 6.
+
 ### 2.2 Event mapping
 
 `tool.execute.before` fires from four call sites — the generic tool wrapper
@@ -93,7 +99,7 @@ stronger gate than Claude Code's `PermissionRequest`.
 |---|---|---|---|
 | `pre_tool` | `tool.execute.before` | full | throw = block; in-place arg mutation |
 | `post_tool` | `tool.execute.after` | full | can rewrite `output.output`/`title`/`metadata` |
-| `user_prompt_submit` | `chat.message` | partial | push onto `output.parts` to inject; no block |
+| `user_prompt_submit` | `chat.message` | partial | push a full `Part` (id/sessionID/messageID) onto `output.parts`; no block |
 | `session_start` | plugin init function | full | runs once per project directory per server instance |
 | `session_end` | `dispose()` | partial | instance teardown, not per-session |
 | `pre_compact` | `experimental.session.compacting` | partial | experimental; can append context or replace prompt |
@@ -715,6 +721,105 @@ existing parts array and not repeated on the turn after. Seven mutations were ea
 confirmed to fail: showing the envelope raw, removing the dedupe, removing the
 cap, a drain that does not clear, a corrupt store that throws, not persisting idle
 findings, and replacing `output.parts` instead of pushing.
+
+### Phase 6 live verification — one claim was wrong
+
+Run 2026-09-10 against **opencode 1.18.30, Bun 1.4.2, Node 24.12.0, Windows 11**,
+in a scratch project installed by `scripts/opencode-install.js`, driven through
+`opencode serve --print-logs --log-level DEBUG` and `POST /session/{id}/message`,
+with a local Ollama model (`qwen3.5:9b`) as in phase 5. The finding was produced
+the documented way: `{"qualityRules":{"builtIn":["no-confirm-alert"],"blocking":false}}`
+in the project's `.claude/harness.json`, a committed `.js` file, a `confirm()` call
+appended to it.
+
+**Claim 3 was false as shipped, and its failure mode was the opposite of the one
+predicted.** The plan said replacing `output.parts` is *silently discarded*, so
+pushing is the safe move. Pushing is indeed the right move, but the pushed object
+was wrong: opencode hands `chat.message` **materialized `Part`s**, and validates
+every entry of the array in `createUserMessage` before saving. The shipped part —
+`{ type: 'text', text }` — failed that schema:
+
+```
+level=ERROR message="invalid user part before save" partID=undefined partType=text index=1
+  cause="SchemaError: Missing key at [\"id\"] / [\"sessionID\"] / [\"messageID\"]"
+level=ERROR message=failed error="EventV2.InvalidDurableEvent: Expected string aggregate field sessionID"
+  at Session.updatePart / SessionPrompt.createUserMessage / SessionPrompt.prompt
+```
+
+The turn returned **HTTP 500 and never ran**. So the real behaviour was worse than
+a silent no-op on two counts: every turn following a recorded finding was dead,
+and because `drain()` ran *before* the push, the notice was consumed and lost. A
+user would have seen an unexplained server error and no finding, forever.
+
+Two fixes, both in `plugin/index.mjs`:
+
+- The part is built with `id`, `sessionID` and `messageID`. The ids come off a
+  sibling part first (what opencode itself just wrote), then `output.message`,
+  then the hook input — all three were observed to carry them. The `id` is
+  generated, since opencode exposes no id factory to plugins; it leads with `z`
+  so it sorts after every real part id, whose 12-char time segment is a hex
+  millisecond clock and starts with a digit.
+- Notices are **peeked, not drained**, until the push is known to be possible,
+  and the hook pushes nothing at all when no identity can be derived. A partial
+  part is not a degraded delivery, it is a dead turn.
+
+| # | Claim | Result |
+|---|---|---|
+| 1 | A finding recorded at the end of a turn appears at the start of the next | **PASS** (after the fix) |
+| 2 | It is not repeated on the turn after | **PASS** |
+| 3 | The pushed part does not break prompt assembly | **FAILED as shipped**, fixed and re-verified |
+| 4 | The store lands in the project, not the Citadel checkout | **PASS** |
+
+**1 and 3 — delivery.** Turn A (`ALPHA`) ended, `session.idle` fired, and
+`.planning/opencode/pending-notices.json` gained one notice at 17:48:17Z. `app.js`
+was then reverted so no *new* finding could be generated. Turn B asked the model
+to quote any Quality Gate text in its input; it returned the injection verbatim,
+`[Citadel] Findings from the end of the previous turn…` through to
+`app.js: [performance] Uses confirm() — use an in-app modal`. HTTP 200, zero
+errors in the server log for the whole run.
+
+**2 — drains.** Read back from `GET /session/{id}/message`, which is the direct
+evidence rather than the model's answer:
+
+```
+user msg …1ac1Qj  1 part   (turn A: nothing pending yet)
+user msg …muSMGz  2 parts  prt_08c6f830c… synthetic=false  "Without using any tools, quote…"
+                           prt_z9facbba2… synthetic=true   "[Citadel] Findings from the end…"
+user msg …xN7ufg  1 part   (turn C: not repeated)
+```
+
+Turn C's model answer *did* still quote the finding — from conversation history,
+since the injected part persists as a real user-message part. That is why the
+message record, not the model, is the evidence here.
+
+**4 — store location.** `.planning/opencode/pending-notices.json` was created in
+the scratch project only. The Citadel checkout never grew a `.planning/opencode/`
+directory across the whole run.
+
+*Incidental confirmations.* The plugin's own `client.app.log` line
+(`message="citadel session.idle" messages="[\"[Quality Gate] …\"]"`) is positive
+evidence of load, alongside `.planning/` appearing during bootstrap. The
+`messageFromStdout` unwrapping works live: the notice is human text, not a JSON
+envelope. `chat.message`'s `input` carries `{sessionID, agent, model, messageID,
+variant}` — both ids are available there as a fallback.
+
+*Open question answered.* `.planning/opencode/` is now in `.gitignore`, matching
+how `.planning/telemetry/`, `.planning/discoveries/` and the other transient
+subtrees are already handled. It is per-session state with a lifetime of one turn.
+Note this covers the Citadel repo only: `opencode-install.js` writes no
+`.gitignore` into consuming projects, so a consuming project has to add the line
+itself.
+
+*Still not done, still deliberate.* Re-prompt via `ctx.client` remains
+unimplemented. This run had a live session and could now have validated it, but
+the exit condition does not require it and the loop guard is the dangerous part;
+if it is ever added it needs a per-session cap and must never re-prompt a
+re-prompt.
+
+*The degradation does not move.* `stop-cannot-block` still holds. A finding
+delivered on the next turn is delivery, not enforcement, and this run makes that
+concrete: `session.idle` could not stop turn A from ending with the violation in
+place.
 
 ## 6. Risks
 
