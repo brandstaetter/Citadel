@@ -233,21 +233,21 @@ function testAgentToolRestrictionsProject() {
       tools: ['Read', 'Grep', 'Glob'],
       disallowedTools: ['Edit', 'Write', 'Bash', 'NotebookEdit'],
     }),
-    { edit: 'deny', bash: 'deny', webfetch: 'deny', task: 'deny' },
-    'a read-only reviewer must deny edit, bash, webfetch and delegation',
+    { edit: 'deny', bash: 'deny', webfetch: 'deny', task: 'deny', skill: 'deny' },
+    'a read-only reviewer must deny everything its allow-list does not grant',
   );
 
   // An allow-list is exhaustive on its own: anything unnamed is not granted.
   assert.deepStrictEqual(
     opencodePermissionsFor({ tools: ['Read', 'Grep', 'Glob'] }),
-    { edit: 'deny', bash: 'deny', webfetch: 'deny', task: 'deny' },
+    { edit: 'deny', bash: 'deny', webfetch: 'deny', task: 'deny', skill: 'deny' },
     'an allow-list alone must still withhold what it does not name',
   );
 
   // ...but it must not over-deny what it does grant.
   assert.deepStrictEqual(
     opencodePermissionsFor({ tools: ['Read', 'Glob', 'Grep', 'Bash'] }),
-    { edit: 'deny', webfetch: 'deny', task: 'deny' },
+    { edit: 'deny', webfetch: 'deny', task: 'deny', skill: 'deny' },
     'a tool the allow-list grants must not be denied',
   );
 
@@ -261,7 +261,7 @@ function testAgentToolRestrictionsProject() {
   // An unrestricted agent must not gain a permission block it never had.
   assert.deepStrictEqual(opencodePermissionsFor({}), {}, 'no restrictions means no permission block');
   assert.deepStrictEqual(
-    opencodePermissionsFor({ tools: ['Read', 'Write', 'Edit', 'Bash', 'WebFetch', 'Agent'] }),
+    opencodePermissionsFor({ tools: ['Read', 'Grep', 'Glob', 'Write', 'Edit', 'Bash', 'WebFetch', 'Agent', 'Skill'] }),
     {},
     'an agent granted everything gets no permission block',
   );
@@ -293,6 +293,45 @@ function testAgentToolRestrictionsProject() {
     'an agent granted delegation must keep it',
   );
 
+  // The allow-list is exhaustive over every tool Citadel can name, not just the
+  // dangerous-looking ones. A skill is instructions rather than a capability, but
+  // an agent that was not granted one does not get one.
+  assert.equal(
+    opencodePermissionsFor({ tools: ['Read'] }).skill,
+    'deny',
+    'an allow-list that does not grant Skill must withhold it',
+  );
+  assert.equal(
+    opencodePermissionsFor({ tools: ['Read', 'Skill'] }).skill,
+    undefined,
+    'an agent granted Skill must keep it',
+  );
+  assert.equal(
+    opencodePermissionsFor({ disallowedTools: ['Skill'] }).skill,
+    'deny',
+    'an explicit Skill deny must be honoured',
+  );
+
+  // Granted read tools must survive an otherwise restrictive allow-list.
+  const readOnly = opencodePermissionsFor({ tools: ['Read', 'Grep', 'Glob'] });
+  for (const kept of ['read', 'grep', 'glob']) {
+    assert.equal(readOnly[kept], undefined, `a granted ${kept} must not be denied`);
+  }
+  // ...and an allow-list that withholds them denies them.
+  assert.equal(opencodePermissionsFor({ tools: ['Read'] }).grep, 'deny', 'an ungranted grep is denied');
+  assert.equal(opencodePermissionsFor({ tools: ['Grep'] }).read, 'deny', 'an ungranted read is denied');
+
+  // opencode compiles any key at all -- `invalidkey: deny` became a real rule
+  // that gates nothing -- so a typo here would look like a working restriction.
+  // Every key the map can emit must be one opencode actually recognizes.
+  const { OPENCODE_PERMISSION_BY_TOOL, KNOWN_OPENCODE_PERMISSIONS } = agents;
+  for (const key of Object.keys(OPENCODE_PERMISSION_BY_TOOL)) {
+    assert(
+      KNOWN_OPENCODE_PERMISSIONS.includes(key),
+      `"${key}" is not a permission opencode was observed to honour; a typo here fails silently`,
+    );
+  }
+
   // And it has to survive into the rendered frontmatter, which is the thing
   // opencode reads.
   const rendered = renderOpencodeAgent({
@@ -310,6 +349,7 @@ function testAgentToolRestrictionsProject() {
   assert.match(rendered, /^ {2}bash: deny$/m);
   assert.match(rendered, /^ {2}webfetch: deny$/m);
   assert.match(rendered, /^ {2}task: deny$/m);
+  assert.match(rendered, /^ {2}skill: deny$/m);
   // The block belongs to the frontmatter, not the body.
   const frontmatterOf = rendered.split('---')[1] || '';
   assert.match(frontmatterOf, /permission:/, 'the permission block must be inside the frontmatter');
@@ -333,6 +373,12 @@ function testAgentToolRestrictionsProject() {
     // Without this every other deny is decorative: a subagent runs with its own
     // permissions, so delegation hands the work to something unrestricted.
     assert.equal(permissions.task, 'deny', `${name} must not be able to delegate around its own limits on opencode`);
+    assert.equal(permissions.skill, 'deny', `${name} must not keep a skill tool its allow-list never granted`);
+    // Read-only means read-only, not read-nothing: what the allow-list DOES grant
+    // has to survive, or the restriction breaks the agent instead of bounding it.
+    assert.equal(permissions.read, undefined, `${name} must keep the read access it was granted`);
+    assert.equal(permissions.grep, undefined, `${name} must keep grep`);
+    assert.equal(permissions.glob, undefined, `${name} must keep glob`);
   }
 }
 

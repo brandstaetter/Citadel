@@ -1064,9 +1064,37 @@ This is worth stating plainly: denying edit and bash while leaving delegation op
 is not a partial restriction, it is no restriction. The tool list is the thing to
 check, not the deny list.
 
-Five mutations were each confirmed to fail: reverting either fix, an allow-list
-that stops being exhaustive, `Write` no longer mapping onto `edit`, and
-unmapping delegation.
+**Made exhaustive.** The map now covers every tool Citadel's frontmatter can
+name — `read`, `grep`, `glob`, `edit`, `bash`, `webfetch`, `task`, `skill` — so an
+allow-list grants exactly what it lists. `arch-reviewer` live, before and after:
+
+```
+before: … glob, grep, read, skill, task, todowrite
+after : … glob, grep, read, todowrite            (skill and task withheld)
+```
+
+A skill is instructions rather than a capability, and what it asks for still goes
+through the permissions above, so it is not an escape the way `task` was. It is
+denied anyway: "harmless in the cases we thought of" is not a reason to grant
+something the allow-list never granted.
+
+*`todowrite` and MCP tools are deliberately left ungated.* Citadel's agent
+frontmatter cannot name either, so denying them would not be exhaustiveness over
+the allow-list — it would be denying a capability the allow-list has no way to
+grant, and it would cut archon and fleet off from the citadel-state server they
+orchestrate through. They need a vocabulary before they get a gate.
+
+*One trap found while doing this.* opencode compiles **any** key in an agent's
+`permission` map into a rule, including nonsense: a probe declaring
+`invalidkey: deny` produced an `invalidkey=deny` rule that gates nothing. A typo
+in the map would therefore look exactly like a working restriction. The map is now
+held to a list of keys observed on a live instance, and a test catches a key
+opencode would silently ignore.
+
+Eight mutations were each confirmed to fail: reverting either blocker fix, an
+allow-list that stops being exhaustive, `Write` no longer mapping onto `edit`,
+unmapping delegation, unmapping skill, a granted read tool being denied anyway,
+and a permission key opencode does not honour.
 
 ## 6. Risks
 

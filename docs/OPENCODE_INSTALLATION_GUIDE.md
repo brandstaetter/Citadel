@@ -290,15 +290,33 @@ needs before enabling this under `opencode serve`.
 
 Citadel agents declare tool access with a `tools` allow-list and a
 `disallowedTools` deny-list. opencode has no such field, so the projection
-translates them into its native `permission` map: `Edit`, `Write`, `MultiEdit`
-and `NotebookEdit` map onto opencode's `edit` (it has no separate write
-permission), `Bash` onto `bash`, `WebFetch`/`WebSearch` onto `webfetch`, and
-`Agent`/`Task` onto `task`. An allow-list is treated as exhaustive — anything it
-does not grant is denied.
+translates them into its native `permission` map:
+
+| Citadel tool | opencode permission |
+|---|---|
+| `Read` | `read` |
+| `Grep` | `grep` |
+| `Glob` | `glob` |
+| `Edit`, `Write`, `MultiEdit`, `NotebookEdit` | `edit` (opencode has no separate write permission) |
+| `Bash` | `bash` |
+| `WebFetch`, `WebSearch` | `webfetch` |
+| `Agent`, `Task` | `task` |
+| `Skill` | `skill` |
+
+**An allow-list is exhaustive**: anything it does not grant is denied, not just
+the dangerous-looking things. An agent restricted to `Read`/`Grep`/`Glob` keeps
+exactly those and loses the rest.
 
 `task` matters more than it looks: a subagent runs with its own permissions, not
 its caller's, so an agent that can delegate can have someone else do whatever it
 is forbidden to do itself.
+
+Two capabilities are **not** gated: `todowrite`, and MCP tools such as the
+citadel-state server. Citadel's agent frontmatter has no vocabulary for either —
+no agent can name them in `tools` — so denying them would not be exhaustiveness
+over the allow-list, it would be denying something the allow-list cannot grant,
+and it would cut the orchestrator agents off from the state server they work
+through. They need a way to be named before they can be gated.
 
 So `arch-reviewer` projects with:
 
@@ -308,6 +326,7 @@ permission:
   bash: deny
   webfetch: deny
   task: deny
+  skill: deny
 ```
 
 opencode withholds those tools from the agent entirely rather than refusing the

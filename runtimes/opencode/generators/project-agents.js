@@ -51,6 +51,9 @@ function yamlString(value) {
 // permission, `edit` covers it -- which is why the deny-list is expressed through
 // `permission` and not through a tools map.
 const OPENCODE_PERMISSION_BY_TOOL = Object.freeze({
+  read: ['Read'],
+  grep: ['Grep'],
+  glob: ['Glob'],
   edit: ['Edit', 'Write', 'MultiEdit', 'NotebookEdit', 'apply_patch'],
   bash: ['Bash', 'BashOutput', 'KillShell'],
   webfetch: ['WebFetch', 'WebSearch'],
@@ -60,10 +63,31 @@ const OPENCODE_PERMISSION_BY_TOOL = Object.freeze({
   // work to archon, which wrote the file. Denying `task` is what makes the rest
   // of this map hold.
   task: ['Agent', 'Task'],
+  // A skill is instructions rather than a capability, and what it asks for still
+  // goes through the permissions above. It is denied anyway, because the
+  // allow-list is exhaustive: a tool the agent was not granted is not available,
+  // and "harmless in the cases we thought of" is not a reason to grant something.
+  skill: ['Skill'],
 });
 
-// Only permissions opencode can actually gate. Read/Grep/Glob have no deny key,
-// so an agent restricted to them is expressed by denying everything else.
+// opencode compiles ANY key in an agent's `permission` map into a rule, including
+// nonsense: a probe declaring `invalidkey: deny` produced an `invalidkey=deny`
+// rule that gates nothing at all. So a typo here would fail silently and look
+// like a working restriction. These are the keys observed on a live 1.18.30
+// instance, and a test holds the map to them.
+const KNOWN_OPENCODE_PERMISSIONS = Object.freeze([
+  'read', 'grep', 'glob', 'edit', 'bash', 'webfetch', 'task', 'skill',
+  'todowrite', 'mcp', 'question', 'plan_enter', 'plan_exit', 'doom_loop',
+  'external_directory',
+]);
+
+// `todowrite` and `mcp` are deliberately absent from the map above. Citadel's
+// agent frontmatter has no vocabulary for either -- no agent can name them in
+// `tools` -- so denying them would not be exhaustiveness over the allow-list, it
+// would be denying a capability the allow-list has no way to grant. It would also
+// cut archon and fleet off from the citadel-state MCP server they orchestrate
+// through. Give agents a way to name them before gating them.
+
 const GATEABLE_PERMISSIONS = Object.freeze(Object.keys(OPENCODE_PERMISSION_BY_TOOL));
 
 function toolListOf(value) {
@@ -168,5 +192,6 @@ module.exports = Object.freeze({
   renderOpencodeAgent,
   opencodePermissionsFor,
   OPENCODE_PERMISSION_BY_TOOL,
+  KNOWN_OPENCODE_PERMISSIONS,
   yamlString,
 });
