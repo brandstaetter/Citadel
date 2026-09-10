@@ -1,7 +1,7 @@
 # opencode Runtime Support — Investigation and Plan
 
 Date: 2026-09-10
-Status: phases 1-4 landed; phases 5-6 proposed
+Status: phases 1-4 landed; phase 5 is a checklist awaiting a Bun/opencode environment; phase 6 optional
 
 Verified against the opencode source at `anomalyco/opencode@dev` (shallow clone,
 2026-09-10), specifically `packages/plugin/src/index.ts`,
@@ -421,12 +421,40 @@ mutations were each confirmed to fail it — an `args`-key MCP config, a merge t
 drops user MCP servers, a merge that replaces the whole config, clobbering an
 unparseable `opencode.json`, and a dry run that writes anyway.
 
-**Phase 5 — live verification and docs.** Run the harness against real
-opencode: confirm `protect-files` blocks an `.env` read, `external-action-gate`
-blocks a gated `bash`, `post-edit` fires, telemetry lands in `.planning/`.
-Record skipped events. Then docs and the capability table.
+**Phase 5 — live verification and docs. NOT STARTED.** Needs Bun and opencode
+actually installed, which the environment phases 1-4 were built in did not have.
+
+Rewritten after phases 2-4, because the original plan for this phase listed
+checks that phases 2-4 now cover under plain Node — re-running them locally
+would prove nothing new. `scripts/test-opencode-adapter.js` already drives the
+real `hooks_src` processes and asserts that `protect-files` blocks a `.env` read
+and allows `README.md`, that `external-action-gate` blocks a force-push and
+`gh pr merge`, that an `apply_patch` touching `.env` is blocked per target, and
+that a missing or timed-out security hook fails closed.
+
+What remains unverified is everything that only behaves differently *inside*
+opencode. Each item below is a claim made from reading opencode's source, never
+observed running:
+
+| # | Claim to verify | Why it can only be checked under Bun | How to check |
+|---|---|---|---|
+| 1 | The plugin loads at all | `index.mjs` reaches the CommonJS runner through `createRequire`, which is untested under Bun. On failure opencode publishes a plugin error and continues **with no Citadel gating** — a silent fail-open | Start opencode in an installed project and read its log. Absence of errors in the TUI is not proof; look for the plugin error event |
+| 2 | `resolveNodeBinary()` falls through to `which node` | Under Bun `process.execPath` is the Bun binary, so the `basename === 'node'` branch never fires and the `which`/`where` probe is what actually runs | `node scripts/opencode-readiness-check.js` reports the resolved path; confirm it is a real Node, not Bun |
+| 3 | A thrown block reaches the model | The exit-2 → `throw` translation has never crossed into opencode's tool-result path | Ask opencode to read a `.env`; the `[protect-files] Blocked:` text should appear as the tool result, and the session must continue rather than dying |
+| 4 | In-place `args` mutation is honored | Read out of `session/tools.ts:104-112`; the reassign-is-discarded behavior is inferred, not observed | Have a hook rewrite `output.args.command` and confirm the tool runs the rewritten command |
+| 5 | Spawn latency is tolerable | ~30-60ms of Node startup per `pre_tool`, on every tool call. The one risk flagged in section 6 with no measurement | Time a session with several tool calls against the same session with `CITADEL_BUNDLES` trimmed; if it bites, a persistent hook worker is the follow-up |
+| 6 | Agents render in the `@` menu | The frontmatter shape is built from `config/agent.ts` and `ConfigAgentV1`, and the descriptions depend on the `parse-agent.js` fix | Open the `@` autocomplete and confirm the seven Citadel agents appear with short, readable descriptions |
+| 7 | Skills appear as commands | opencode is expected to register each `.claude/skills/**/SKILL.md` as a command (`command/index.ts:134`) with no projection | Confirm Citadel's skills are offered as slash commands, and that none is shadowed by a stale file |
+| 8 | Telemetry lands | Hooks write Citadel state as usual, but nothing has confirmed the project root reaches them correctly under opencode | Check `.planning/` for telemetry after a session, and that paths resolve to the project, not the Citadel checkout |
+
+Also worth recording rather than fixing: which opencode bus events fire in
+practice, since the adapter's skip list is derived from the event map rather
+than from observation.
+
 *Exit:* `docs/OPENCODE_INSTALLATION_GUIDE.md` plus a recorded live-verify
-artifact, as `scripts/codex-live-verify.js` does for Codex.
+artifact, as `scripts/codex-live-verify.js` does for Codex. Items 1-3 are the
+blocking ones: if any fails, the runtime contract's `hooks: partial` claim is
+too generous and must be narrowed before this ships.
 
 **Phase 6 (optional) — Stop recovery.** Deferred gate injection via
 `chat.message`; re-prompt via `ctx.client` behind a config flag and a
