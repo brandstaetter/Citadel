@@ -12,6 +12,7 @@ const path = require('path');
 
 const runner = require(path.join(__dirname, '..', 'runtimes', 'opencode', 'plugin', 'hook-runner'));
 const notices = require(path.join(__dirname, '..', 'runtimes', 'opencode', 'plugin', 'pending-notices'));
+const reprompt = require(path.join(__dirname, '..', 'runtimes', 'opencode', 'plugin', 'reprompt'));
 
 // The identity fields opencode's Part schema requires, and the id shapes it
 // actually produces. Copied from a live 1.18.30 chat.message payload rather than
@@ -455,6 +456,194 @@ async function testDeferredGateReachesNextTurn() {
   }
 }
 
+// Re-prompting drives real model turns without a human asking, so the policy is
+// off by default and the loop guard is the part that has to be right. These
+// exercise the decision half directly -- no opencode needed to prove a cycle
+// cannot happen.
+function testRepromptPolicy() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'citadel-reprompt-'));
+  try {
+    const writeConfig = (value) => {
+      fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
+      fs.writeFileSync(path.join(root, '.claude', 'harness.json'), value);
+    };
+
+    // Every path to "not explicitly enabled" must read as off.
+    assert.equal(reprompt.readConfig(root).enabled, false, 'absent config is off');
+    writeConfig('{}');
+    assert.equal(reprompt.readConfig(root).enabled, false, 'empty config is off');
+    writeConfig('{"opencode":{}}');
+    assert.equal(reprompt.readConfig(root).enabled, false, 'an opencode block alone is off');
+    writeConfig('{"opencode":{"repromptOnStopFindings":"yes"}}');
+    assert.equal(reprompt.readConfig(root).enabled, false, 'only a literal true enables it');
+    writeConfig('{ not json');
+    assert.equal(reprompt.readConfig(root).enabled, false, 'corrupt config is off, never on');
+
+    writeConfig('{"opencode":{"repromptOnStopFindings":true}}');
+    const enabled = reprompt.readConfig(root);
+    assert.equal(enabled.enabled, true);
+    assert.equal(enabled.maxPerSession, reprompt.DEFAULT_MAX_PER_SESSION);
+
+    // The cap bounds autonomous spending, so config must not be able to lift it.
+    const tooBig = reprompt.HARD_MAX_PER_SESSION + 50;
+    writeConfig('{"opencode":{"repromptOnStopFindings":true,"maxRepromptsPerSession":' + tooBig + '}}');
+    assert.equal(reprompt.readConfig(root).maxPerSession, reprompt.HARD_MAX_PER_SESSION, 'the hard ceiling holds');
+    writeConfig('{"opencode":{"repromptOnStopFindings":true,"maxRepromptsPerSession":0}}');
+    assert.equal(reprompt.readConfig(root).maxPerSession, reprompt.DEFAULT_MAX_PER_SESSION, 'a nonsense cap falls back');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+
+  // Disabled means never, regardless of how many findings arrive.
+  const off = reprompt.createGuard({ enabled: false, maxPerSession: 5 });
+  for (let i = 0; i < 5; i += 1) {
+    assert.equal(off.consider('ses_a', true).send, false, 'a disabled policy never sends');
+  }
+
+  // An idle with nothing to say is not a reason to start a turn.
+  const quiet = reprompt.createGuard({ enabled: true, maxPerSession: 2 });
+  assert.equal(quiet.consider('ses_a', false).reason, 'no-finding');
+  assert.equal(quiet.stats('ses_a').sent, 0, 'a quiet idle spends nothing');
+
+  // The core loop guard: our own re-prompt's idle must never be answered.
+  const guard = reprompt.createGuard({ enabled: true, maxPerSession: 2 });
+  const first = guard.consider('ses_a', true);
+  assert.equal(first.send, true, 'the first finding re-prompts');
+  const second = guard.consider('ses_a', true);
+  assert.equal(second.send, false);
+  assert.equal(second.reason, 'idle-follows-reprompt', 'the idle our turn produced must be skipped');
+
+  // A later human turn may re-prompt again, up to the cap, and then never.
+  assert.equal(guard.consider('ses_a', true).send, true, 'a fresh idle may re-prompt within the cap');
+  assert.equal(guard.consider('ses_a', true).reason, 'idle-follows-reprompt');
+  assert.equal(guard.consider('ses_a', true).reason, 'cap-reached', 'the cap ends it');
+  assert.equal(guard.consider('ses_a', true).reason, 'cap-reached', 'and stays ended');
+  assert.equal(guard.stats('ses_a').sent, 2, 'exactly the cap was spent');
+
+  // Even alternating with another session cannot lift either session's cap.
+  assert.equal(guard.consider('ses_b', true).send, true, 'a different session has its own budget');
+  assert.equal(guard.consider('ses_a', true).reason, 'cap-reached', 'and does not refresh the first');
+
+  // Observed live: a re-prompt that works ends with the model having fixed the
+  // finding, so the idle it produces is SILENT. That silent idle still has to
+  // consume the loop mark, or the mark survives and eats the next legitimate
+  // re-prompt instead.
+  const fixed = reprompt.createGuard({ enabled: true, maxPerSession: 2 });
+  assert.equal(fixed.consider('ses_c', true).send, true);
+  assert.equal(fixed.consider('ses_c', false).reason, 'idle-follows-reprompt', 'a quiet idle consumes the mark');
+  assert.equal(fixed.consider('ses_c', true).send, true, 'the next real finding is not swallowed');
+
+  // No session id means no target, and must not spend budget.
+  const strict = reprompt.createGuard({ enabled: true, maxPerSession: 2 });
+  assert.equal(strict.consider(undefined, true).reason, 'no-session-id');
+  assert.equal(strict.stats('ses_a').sent, 0, 'a missing id spends nothing');
+
+  // An unbounded run must converge on silence rather than a cycle.
+  const bounded = reprompt.createGuard({ enabled: true, maxPerSession: 3 });
+  let sends = 0;
+  for (let i = 0; i < 500; i += 1) if (bounded.consider('ses_loop', true).send) sends += 1;
+  assert.equal(sends, 3, '500 findings must still yield exactly the cap');
+
+  // The same, alternating quiet and loud idles the way a real session does.
+  const realistic = reprompt.createGuard({ enabled: true, maxPerSession: 3 });
+  let realSends = 0;
+  for (let i = 0; i < 500; i += 1) if (realistic.consider('ses_mix', i % 2 === 0).send) realSends += 1;
+  assert.equal(realSends, 3, 'mixed quiet and loud idles must still yield exactly the cap');
+}
+
+// The plugin must not re-prompt unless the project asked, must target the idle
+// session with the shape opencode's SDK actually takes, and must hand the guard
+// every idle -- including the silent one a successful re-prompt produces.
+async function testRepromptWiring() {
+  const root = tempProject();
+  const runnerPath = require.resolve(path.join(__dirname, '..', 'runtimes', 'opencode', 'plugin', 'hook-runner'));
+  const realEntry = require.cache[runnerPath];
+  try {
+    const calls = [];
+    const client = {
+      app: { log: async () => {} },
+      session: { promptAsync: async (arg) => { calls.push(arg); return { data: {}, error: null }; } },
+    };
+
+    // The stub's verdict is switchable, so one plugin instance can see a finding,
+    // then a clean turn, then a finding again -- the real sequence.
+    let messages = ['[Quality Gate] something'];
+    require.cache[runnerPath] = {
+      ...realEntry,
+      exports: {
+        TEMPLATE_EVENT_BY_OPENCODE_EVENT: runner.TEMPLATE_EVENT_BY_OPENCODE_EVENT,
+        runHooksForEvent: async () => ({ blocked: false, reason: null, messages, results: [], skipped: [] }),
+      },
+    };
+
+    const idle = { event: { type: 'session.idle', properties: { sessionID: 'ses_live' } } };
+    const load = async (tag) => {
+      const mod = await import('../runtimes/opencode/plugin/index.mjs?rp=' + Date.now() + tag);
+      return mod.CitadelPlugin({ directory: root, worktree: root, client });
+    };
+
+    // Default install: no opencode block in harness.json, so nothing is sent.
+    const quiet = await load('a');
+    await quiet.event(idle);
+    assert.equal(calls.length, 0, 'a default install must never re-prompt');
+
+    // Opted in, cap of two.
+    fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, '.claude', 'harness.json'),
+      '{"opencode":{"repromptOnStopFindings":true,"maxRepromptsPerSession":2}}',
+    );
+    const loud = await load('b');
+
+    await loud.event(idle);
+    assert.equal(calls.length, 1, 'an opted-in project re-prompts on a finding');
+    assert.deepStrictEqual(calls[0].path, { id: 'ses_live' }, 'the re-prompt must target the idle session');
+    assert.equal(calls[0].body.parts[0].type, 'text');
+    assert.match(calls[0].body.parts[0].text, /Citadel/);
+    // The finding rides in through chat.message, so the re-prompt must not
+    // restate it -- that would double it in the new turn.
+    assert(!calls[0].body.parts[0].text.includes('[Quality Gate]'), 'the re-prompt must not restate the finding');
+
+    // Our own turn's idle. It must not be answered, whether or not it is silent.
+    await loud.event(idle);
+    assert.equal(calls.length, 1, 'the plugin must never answer its own re-prompt');
+
+    // A silent idle with no re-prompt behind it must not spend budget or start a
+    // turn. This is the case that separates "forwarded the real verdict" from
+    // "forwarded a hardcoded true".
+    const calm = await load('d');
+    messages = [];
+    await calm.event(idle);
+    assert.equal(calls.length, 1, 'a silent idle on a fresh session must not re-prompt');
+
+    // The realistic shape: the re-prompt worked, so the next idle carries no
+    // finding. That silent idle has to reach the guard and consume the loop
+    // mark, or the mark survives and eats the next real finding instead.
+    const fresh = await load('c');
+    messages = ['[Quality Gate] something'];
+    await fresh.event(idle);
+    assert.equal(calls.length, 2, 'a fresh instance re-prompts on its first finding');
+    messages = [];
+    await fresh.event(idle);
+    assert.equal(calls.length, 2, 'a silent idle must never start a turn');
+    messages = ['[Quality Gate] something else'];
+    await fresh.event(idle);
+    assert.equal(calls.length, 3, 'the silent idle must have consumed the loop mark');
+
+    // And the cap still ends it.
+    messages = [];
+    await fresh.event(idle);
+    messages = ['[Quality Gate] a third thing'];
+    await fresh.event(idle);
+    assert.equal(calls.length, 3, 'the cap holds through the plugin');
+  } finally {
+    if (realEntry) require.cache[runnerPath] = realEntry;
+    else delete require.cache[runnerPath];
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+
 async function main() {
   const root = tempProject();
   try {
@@ -470,6 +659,8 @@ async function main() {
     await testApplyPatchIsGated(root);
     await testPluginShim(root);
     await testDeferredGateReachesNextTurn();
+    testRepromptPolicy();
+    await testRepromptWiring();
     console.log('opencode adapter tests pass.');
   } finally {
     fs.rmSync(root, { recursive: true, force: true });

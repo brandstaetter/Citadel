@@ -25,6 +25,7 @@ import { randomBytes } from 'node:crypto';
 const require = createRequire(import.meta.url);
 const runner = require('./hook-runner.js');
 const notices = require('./pending-notices.js');
+const reprompt = require('./reprompt.js');
 
 // A part pushed onto `output.parts` is a materialized Part, not the input shape:
 // opencode validates it against a schema requiring `id` (`^prt`), `sessionID` and
@@ -71,10 +72,48 @@ export const CitadelPlugin = async ({ project, directory, worktree, client } = {
   const projectRoot = worktree || directory || project?.worktree || process.cwd();
   const options = { projectRoot };
 
+  // Read once per instance: the policy governs autonomous model turns, so it
+  // should not change under a running session because someone edited a file.
+  const repromptConfig = reprompt.readConfig(projectRoot);
+  const repromptGuard = reprompt.createGuard(repromptConfig);
+
   async function log(level, message, extra) {
     try {
       await client?.app?.log({ body: { service: 'citadel', level, message, extra } });
     } catch { /* logging must never break a turn */ }
+  }
+
+  // Ask opencode for one more turn so a stop-time finding is acted on now rather
+  // than whenever a human next types. Off unless the project opts in; see
+  // reprompt.js for the two guards. The finding itself is not repeated here --
+  // it rides into the new turn through the same chat.message injection that a
+  // human-typed prompt would carry.
+  // Called on every session.idle, including the quiet ones -- see reprompt.js for
+  // why a silent idle is load-bearing.
+  async function maybeReprompt(sessionID, hasFinding) {
+    // Checked before the guard is consulted, so a runtime that cannot re-prompt
+    // at all does not burn the session's budget discovering that every turn.
+    if (typeof client?.session?.promptAsync !== 'function') return;
+    const decision = repromptGuard.consider(sessionID, hasFinding);
+    if (!decision.send) {
+      // 'disabled' and 'no-finding' are the normal quiet paths and would be
+      // logged on every idle; only the guards actually declining is news.
+      if (decision.reason === 'cap-reached' || decision.reason === 'idle-follows-reprompt') {
+        await log('info', 'citadel reprompt skipped', { reason: decision.reason, sessionID });
+      }
+      return;
+    }
+    try {
+      await client.session.promptAsync({
+        path: { id: sessionID },
+        body: { parts: [{ type: 'text', text: reprompt.REPROMPT_TEXT }] },
+      });
+      await log('info', 'citadel reprompt sent', { sessionID, sent: decision.sent, cap: decision.cap });
+    } catch (error) {
+      // A failed re-prompt still spent its slot. That is the safe direction:
+      // the notice is already persisted and the next human turn will carry it.
+      await log('warn', 'citadel reprompt failed', { sessionID, error: String(error).slice(0, 300) });
+    }
   }
 
   // The plugin's init function is the only thing opencode runs once per project
@@ -165,17 +204,22 @@ export const CitadelPlugin = async ({ project, directory, worktree, client } = {
         ...(event.properties || {}),
         directory: projectRoot,
       }, options);
-      if (!outcome.messages.length) return;
 
       // A stop-time finding would otherwise be discarded, because nothing awaits
       // this handler and nothing can act on its result. Persist it so the next
       // chat.message can hand it to the model. Deduped and capped in the store,
       // because session.idle fires repeatedly with the same verdict.
       if (event.type === 'session.idle') {
-        try {
-          notices.record(projectRoot, event.type, outcome.messages);
-        } catch { /* an undeliverable notice must not break the session */ }
+        if (outcome.messages.length) {
+          try {
+            notices.record(projectRoot, event.type, outcome.messages);
+          } catch { /* an undeliverable notice must not break the session */ }
+        }
+        // Every idle, finding or not: the guard's loop mark is consumed here.
+        await maybeReprompt(event.properties?.sessionID, outcome.messages.length > 0);
       }
+
+      if (!outcome.messages.length) return;
       await log('info', `citadel ${event.type}`, { messages: outcome.messages });
     },
 

@@ -810,11 +810,95 @@ Note this covers the Citadel repo only: `opencode-install.js` writes no
 `.gitignore` into consuming projects, so a consuming project has to add the line
 itself.
 
-*Still not done, still deliberate.* Re-prompt via `ctx.client` remains
-unimplemented. This run had a live session and could now have validated it, but
-the exit condition does not require it and the loop guard is the dangerous part;
-if it is ever added it needs a per-session cap and must never re-prompt a
-re-prompt.
+### Phase 6b — re-prompt via `ctx.client`. DONE, opt-in, validated live
+
+The reason this was deferred was that it could not be validated: no live session,
+no model. Both existed once phase 6 was verified, so it was built and run.
+
+**It is off unless a project turns it on.** Section 2.4 said the loop guard has to
+exist "before it goes anywhere near a default", and a feature that spends tokens
+without a human asking should not arrive with an install. Projects opt in through
+`.claude/harness.json`:
+
+```json
+{ "opencode": { "repromptOnStopFindings": true, "maxRepromptsPerSession": 2 } }
+```
+
+Anything other than a literal `true` — an absent file, an absent block, a corrupt
+file, the string `"yes"` — reads as off. `maxRepromptsPerSession` defaults to 2
+and is clamped to a hard ceiling of 5 that config cannot lift, because the cap is
+the thing bounding autonomous spending.
+
+*Observed API, not inferred.* `client.session.promptAsync({ path: { id }, body: {
+parts } })`; `path.id`, not `path.sessionID`, despite the route being
+`/session/{sessionID}/prompt_async`. `session.idle` carries exactly
+`{ sessionID }`. `ctx` also carries `serverUrl`, so a raw `fetch` is a fallback if
+the SDK shape moves. The body needs no `model` or `agent`: opencode uses the
+session's own.
+
+*The re-prompt does not restate the finding.* It starts a turn; the finding rides
+into that turn through the same `chat.message` injection a human-typed prompt
+would carry. Restating it would double it.
+
+**Two guards, and the live run moved one of them.**
+
+1. *A per-session cap.* Spent at the moment of the decision, not on a confirmed
+   send, so a failed send costs a re-prompt rather than risking an extra one.
+2. *Never re-prompt a re-prompt.* Sending marks the session; the next
+   `session.idle` for it is declined and the mark consumed.
+
+Guard 2 was wired to run only on idles that carried a finding. The live run showed
+why that is wrong: **a re-prompt that works ends with the model having fixed the
+finding, so the idle it produces is silent.** In the first run the model went
+`grep` → `read` → `edit` and replaced the `confirm()` call with a modal, entirely
+on its own. That silent idle never reached the guard, the mark survived, and it
+would have eaten the *next* legitimate re-prompt instead. The guard now sees every
+idle and the `hasFinding` flag is a parameter. This was found by watching, not by
+reading — a plain unit test with a stub that always reports a finding passes
+either way.
+
+*Live sequence*, cap 2, opencode 1.18.30 / Ollama `qwen3.5:9b`, driven by human
+turns with the violation left in place throughout:
+
+```
+citadel reprompt sent     sessionID=ses_f736ea… sent=1 cap=2
+citadel reprompt skipped  reason=idle-follows-reprompt
+citadel reprompt sent     sessionID=ses_f736ea… sent=2 cap=2
+citadel reprompt skipped  reason=idle-follows-reprompt
+citadel reprompt skipped  reason=cap-reached
+```
+
+Every branch of the policy observed in one session, in order, with zero server
+errors. The `idle-follows-reprompt` lines are the guard on its hard case: those
+re-prompt turns did *not* fix the violation, so their idles carried the finding
+again and were declined anyway. `cap-reached` is the budget ending it for good.
+The re-prompt turn's user message holds two parts — the re-prompt text and the
+injected finding — exactly as a human turn would.
+
+*Operational caveat found in the same run.* A re-prompt starts a turn nobody is
+watching, and that turn can hit an opencode permission prompt — here
+`permission=external_directory`, because `skills.paths` points at the Citadel
+checkout and the model followed it. Under `opencode serve` there is no one to
+answer, so the session sits `busy` indefinitely and further prompts to it return
+nothing; `POST /session/{id}/abort` clears it. This is not caused by re-prompting,
+but re-prompting is what makes it happen unattended. Anyone enabling this in a
+headless setup should pre-approve the permissions their project needs.
+
+*Tested without opencode too.* `testRepromptPolicy` drives the decision half
+directly, including 500 consecutive findings converging on exactly the cap, and
+the same alternating quiet and loud. `testRepromptWiring` drives the plugin with a
+fake client through the real sequence: finding, silent idle, finding again. Ten
+mutations were each confirmed to fail — removing either guard, defaulting to
+enabled, a corrupt config reading as enabled, config lifting the hard ceiling, the
+plugin ignoring the verdict, consuming the mark only on findings, re-prompting on
+a silent idle, not forwarding silent idles, targeting the wrong session, and
+restating the finding in the re-prompt text.
+
+*The degradation does not move.* `stop-cannot-block` still holds, and this is the
+important thing not to overstate. Re-prompting shortens the wait for the next turn
+from "whenever a human types" to "immediately". It does not make `session.idle`
+refusable: turn one still ended with the violation in place, and the runtime
+contract says so.
 
 *The degradation does not move.* `stop-cannot-block` still holds. A finding
 delivered on the next turn is delivery, not enforcement, and this run makes that

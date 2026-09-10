@@ -113,6 +113,11 @@ opencode dispatches bus events fire-and-forget (`void hook["event"]?.(...)`), so
 `quality-gate` is **observational** on this runtime — it records findings but
 cannot force continuation. Contract: `stop-cannot-block`.
 
+Findings are still delivered, one turn late, and a project can opt into having
+Citadel start that turn itself rather than waiting for a human — see
+[Quality-gate findings arrive one turn late](#quality-gate-findings-arrive-one-turn-late).
+Neither makes the event refusable.
+
 ### `permission.ask` never fires
 
 Declared in the plugin SDK but never triggered (upstream anomalyco/opencode
@@ -226,6 +231,56 @@ why `stop-cannot-block` remains a declared degradation.
 Findings are deduped by content — `session.idle` fires many times per session and
 usually says the same thing — capped at 20 notices, and delivered once. The store
 is safe to delete; you will simply lose any finding not yet delivered.
+
+`.planning/opencode/` is transient per-session state. Citadel ignores it in its
+own repo; the installer does not write a `.gitignore` into your project, so add
+the line yourself if you do not want it committed.
+
+### Optional: act on findings without waiting for a human
+
+By default the finding waits for whoever types the next prompt. A project can
+instead have Citadel start that turn itself:
+
+```json
+{
+  "opencode": {
+    "repromptOnStopFindings": true,
+    "maxRepromptsPerSession": 2
+  }
+}
+```
+
+in `.claude/harness.json`. When a turn ends with a finding, the plugin asks
+opencode for one more turn through `client.session.promptAsync`, and the finding
+rides into it the same way it would into a human-typed prompt. In practice the
+model reads the finding and fixes it — in the verification run it went `grep` →
+`read` → `edit` and replaced the offending `confirm()` call unprompted.
+
+**This spends tokens without anyone asking**, which is why it is off unless you
+switch it on, and why two guards bound it:
+
+- **A per-session cap**, default 2, clamped to a hard maximum of 5 that config
+  cannot raise. Once spent, that session never re-prompts again. A re-prompt that
+  fails to send still costs its slot.
+- **Citadel never re-prompts its own re-prompt.** The idle produced by a turn
+  Citadel started is always declined, whether or not the finding was fixed.
+
+Both decisions are logged, so `opencode serve --print-logs` shows exactly what
+happened:
+
+```
+citadel reprompt sent     sessionID=ses_… sent=1 cap=2
+citadel reprompt skipped  reason=idle-follows-reprompt
+```
+
+This does **not** lift `stop-cannot-block`. The turn that introduced the violation
+still ended; re-prompting only shortens the wait for the next one.
+
+One caveat if you run headless: a re-prompt starts a turn nobody is watching, and
+that turn can hit an opencode permission prompt with no one to answer it. The
+session then sits `busy` and further prompts to it return nothing —
+`POST /session/{id}/abort` clears it. Pre-approve the permissions your project
+needs before enabling this under `opencode serve`.
 
 ## Performance
 
