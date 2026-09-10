@@ -196,9 +196,8 @@ function main() {
 
     // 1b. Sweep stale coordination claims from crashed sessions
     if (effectiveBundles.has('parallel')) try {
-      const coordScript = path.join(PROJECT_ROOT, '.citadel', 'scripts', 'coordination.js');
-      const sweepScript = path.join(PLUGIN_ROOT, 'scripts', 'coordination.js');
-      const script = fs.existsSync(coordScript) ? coordScript : sweepScript;
+      // A project delegate may still point at the previous plugin version.
+      const script = path.join(PLUGIN_ROOT, 'scripts', 'coordination.js');
       if (fs.existsSync(script)) {
         require('child_process').spawnSync('node', [script, 'sweep'], {
           cwd: PROJECT_ROOT,
