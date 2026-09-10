@@ -28,6 +28,7 @@ node /path/to/Citadel/scripts/opencode-install.js --project-root /path/to/projec
 
 # 3. verify
 node /path/to/Citadel/scripts/opencode-readiness-check.js --project-root /path/to/project
+#    exits 0 when the required checks pass; add --strict to also fail on advisory gaps
 ```
 
 `scripts/install.js --runtime opencode` dispatches to the same installer.
@@ -177,11 +178,16 @@ install path does not create (`.citadel/` gets only `plugin-root.txt`,
 So `AGENTS.md` is yours to author. opencode reads `AGENTS.md` first, then
 `CLAUDE.md`, so an existing `CLAUDE.md` already works with no extra step.
 
-**A fresh, correct install therefore cannot pass its own readiness check**: both
-`guidance file present` and `skills discoverable by opencode` fail until you
-supply them, and the script exits non-zero. Treat those two as advisory; the six
-checks that reflect what the installer actually writes are the ones that must
-pass.
+A fresh, correct install reports both `guidance file present` and
+`skills discoverable by opencode` as **WARN**, with a remedy line, and still
+exits 0. The readiness check separates two severities: *required* covers what the
+installer guarantees plus the live proof that the gate blocks, and only those set
+the exit code; *advisory* covers capability a project gains by supplying
+something Citadel does not project. Pass `--strict` to make the advisory gaps
+exit non-zero too, which is what you want in CI.
+
+Earlier builds marked all eight checks alike, so a correct install failed its own
+verification and exited 1.
 
 ## Performance
 

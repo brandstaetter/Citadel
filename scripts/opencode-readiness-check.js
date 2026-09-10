@@ -22,8 +22,22 @@ function arg(argv, name, fallback = null) {
   return index >= 0 && argv[index + 1] ? argv[index + 1] : fallback;
 }
 
-function check(name, pass, detail) {
-  return { name, pass: Boolean(pass), detail: detail || '' };
+// Two severities, because the installer does not write everything the runtime
+// can use. REQUIRED covers what `opencode-install.js` guarantees plus the live
+// proof that enforcement works — a failure there means the install is broken, so
+// it sets the exit code. ADVISORY covers capability a project gains by having
+// something Citadel does not (yet) project: missing means less Citadel, not a
+// broken install. Before this split a correct fresh install failed its own
+// readiness check, which teaches operators to ignore the tool.
+const REQUIRED = 'required';
+const ADVISORY = 'advisory';
+
+function check(name, pass, detail, severity = REQUIRED, remedy = '') {
+  return { name, pass: Boolean(pass), detail: detail || '', severity, remedy };
+}
+
+function advisory(name, pass, detail, remedy) {
+  return check(name, pass, detail, ADVISORY, remedy);
 }
 
 async function collect(projectRoot) {
@@ -52,22 +66,43 @@ async function collect(projectRoot) {
     mcp ? `type=${mcp.type} command=${Array.isArray(mcp.command) ? mcp.command.length + ' args' : typeof mcp.command}` : 'missing',
   ));
 
-  // Guidance and skills are read natively, so their absence is a real gap even
-  // though Citadel projects nothing for them.
+  // Advisory from here. opencode reads guidance natively but the installer does
+  // not render it, so its presence is the project's own business.
   const guidance = ['AGENTS.md', 'CLAUDE.md'].find((name) => fs.existsSync(path.join(projectRoot, name)));
-  checks.push(check('guidance file present', Boolean(guidance), guidance || 'neither AGENTS.md nor CLAUDE.md'));
+  checks.push(advisory(
+    'guidance file present',
+    Boolean(guidance),
+    guidance || 'neither AGENTS.md nor CLAUDE.md',
+    'add an AGENTS.md (or CLAUDE.md); opencode reads it natively, Citadel does not write one',
+  ));
 
+  // Known gap, verified live in phase 5: Citadel's skills live in the Citadel
+  // checkout and reach Claude Code through the plugin marketplace, which opencode
+  // has no equivalent of. There is no skills projector yet, so a correct install
+  // yields zero Citadel skills and therefore zero Citadel slash commands.
   const skillsDir = path.join(projectRoot, '.claude', 'skills');
   const skillCount = fs.existsSync(skillsDir)
     ? fs.readdirSync(skillsDir, { withFileTypes: true }).filter((entry) => entry.isDirectory()).length
     : 0;
-  checks.push(check('skills discoverable by opencode', skillCount > 0, `${skillCount} in .claude/skills`));
+  checks.push(advisory(
+    'skills discoverable by opencode',
+    skillCount > 0,
+    `${skillCount} in .claude/skills`,
+    'no skills projector exists yet; copy the skills you want from <citadel>/skills into .claude/skills',
+  ));
 
+  // Agents are projected by default, but --skip-agents is a supported choice, so
+  // their absence is a deliberate configuration rather than a broken install.
   const agentDir = path.join(projectRoot, '.opencode', 'agent');
   const agentCount = fs.existsSync(agentDir)
     ? fs.readdirSync(agentDir).filter((name) => name.endsWith('.md')).length
     : 0;
-  checks.push(check('agents projected', agentCount > 0, `${agentCount} in .opencode/agent`));
+  checks.push(advisory(
+    'agents projected',
+    agentCount > 0,
+    `${agentCount} in .opencode/agent`,
+    'run opencode-install.js without --skip-agents to project them',
+  ));
 
   // The hooks have to actually run. Node resolution is the usual failure here,
   // because under Bun process.execPath is the Bun binary.
@@ -92,14 +127,43 @@ async function collect(projectRoot) {
   return checks;
 }
 
-function render(projectRoot, checks) {
+// A required failure is FAIL; an advisory failure is WARN. Only required failures
+// decide the exit code, unless --strict is given.
+function statusOf(item) {
+  if (item.pass) return 'PASS';
+  return item.severity === ADVISORY ? 'WARN' : 'FAIL';
+}
+
+function summarize(checks, { strict = false } = {}) {
+  const blocking = checks.filter((item) => !item.pass && item.severity === REQUIRED);
+  const warnings = checks.filter((item) => !item.pass && item.severity === ADVISORY);
+  return {
+    blocking,
+    warnings,
+    ok: blocking.length === 0 && (!strict || warnings.length === 0),
+  };
+}
+
+function render(projectRoot, checks, { strict = false } = {}) {
+  const { blocking, warnings, ok } = summarize(checks, { strict });
   const lines = [];
   lines.push('Citadel opencode readiness');
   lines.push('='.repeat(40));
   lines.push(`project: ${projectRoot}`);
   lines.push('');
   for (const item of checks) {
-    lines.push(`  ${item.pass ? 'PASS' : 'FAIL'}  ${item.name}${item.detail ? ` — ${item.detail}` : ''}`);
+    lines.push(`  ${statusOf(item).padEnd(4)}  ${item.name}${item.detail ? ` — ${item.detail}` : ''}`);
+    if (!item.pass && item.remedy) lines.push(`        ${item.remedy}`);
+  }
+  lines.push('');
+  if (blocking.length > 0) {
+    lines.push(`NOT READY: ${blocking.length} required check(s) failed.`);
+  } else if (warnings.length > 0) {
+    lines.push(strict
+      ? `NOT READY (--strict): ${warnings.length} advisory check(s) failed.`
+      : `READY, with ${warnings.length} advisory gap(s) above — Citadel's gates work, but you get less of Citadel.`);
+  } else {
+    lines.push('READY.');
   }
   lines.push('');
   lines.push('Declared degradations (not failures — opencode cannot do these):');
@@ -110,21 +174,25 @@ function render(projectRoot, checks) {
 async function main() {
   const argv = process.argv.slice(2);
   const projectRoot = path.resolve(arg(argv, '--project-root', process.cwd()));
+  const strict = argv.includes('--strict');
   const checks = await collect(projectRoot);
-  const failed = checks.filter((item) => !item.pass);
+  const { blocking, warnings, ok } = summarize(checks, { strict });
 
   if (argv.includes('--json')) {
     process.stdout.write(`${JSON.stringify({
-      ok: failed.length === 0,
+      ok,
+      strict,
       projectRoot,
       citadelRoot: CITADEL_ROOT,
+      blocking: blocking.map((item) => item.name),
+      warnings: warnings.map((item) => item.name),
       checks,
       degradations: runtime.degradations,
     }, null, 2)}\n`);
   } else {
-    process.stdout.write(render(projectRoot, checks));
+    process.stdout.write(render(projectRoot, checks, { strict }));
   }
-  return failed.length === 0 ? 0 : 1;
+  return ok ? 0 : 1;
 }
 
 if (require.main === module) {
@@ -134,4 +202,4 @@ if (require.main === module) {
   });
 }
 
-module.exports = Object.freeze({ collect, render });
+module.exports = Object.freeze({ ADVISORY, REQUIRED, collect, render, statusOf, summarize });

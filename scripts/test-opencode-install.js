@@ -27,8 +27,19 @@ const {
 } = require(path.join(CITADEL_ROOT, 'runtimes', 'opencode', 'generators', 'project-agents'));
 const { OPENCODE_GUIDANCE_TARGET } = require(path.join(CITADEL_ROOT, 'runtimes', 'opencode', 'guidance', 'render'));
 
+// Deliberately bare. An earlier version of this fixture hand-created AGENTS.md
+// and .claude/skills/do/SKILL.md and then asserted that the readiness check
+// passed — which encoded the assumption instead of testing it, and hid the fact
+// that a correct install produces neither. Anything the installer does not write
+// must not appear here.
 function scratchProject() {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'citadel-oc-install-'));
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'citadel-oc-install-'));
+}
+
+// A project that additionally has the things Citadel does not project, for the
+// case where every advisory check should also pass.
+function furnishedProject() {
+  const root = scratchProject();
   fs.mkdirSync(path.join(root, '.claude', 'skills', 'do'), { recursive: true });
   fs.writeFileSync(path.join(root, '.claude', 'skills', 'do', 'SKILL.md'), '---\nname: do\ndescription: d\n---\nbody\n');
   fs.writeFileSync(path.join(root, 'AGENTS.md'), '# Demo\n');
@@ -200,6 +211,65 @@ function testInstallerCli(root) {
   assert.match(missing.error, /does not exist/);
 }
 
+// A correct install must not fail its own readiness check. Everything the
+// installer guarantees is REQUIRED; the things it deliberately does not write are
+// ADVISORY, reported but not fatal. Before this split, `opencode:verify` exited 1
+// on a fresh correct install, which teaches operators to ignore the tool.
+async function testReadinessOnBareInstall(root) {
+  const readiness = require(path.join(CITADEL_ROOT, 'scripts', 'opencode-readiness-check'));
+  const checks = await readiness.collect(root);
+
+  const blocking = checks.filter((item) => !item.pass && item.severity === readiness.REQUIRED);
+  assert.deepStrictEqual(
+    blocking.map((item) => item.name), [],
+    `a bare correct install must have no required failures: ${JSON.stringify(blocking)}`,
+  );
+  assert.equal(readiness.summarize(checks).ok, true, 'a bare correct install must be READY');
+
+  // The known gaps must still be reported — downgrading them to advisory must not
+  // mean hiding them — and each must carry a remedy.
+  const warnings = checks.filter((item) => !item.pass && item.severity === readiness.ADVISORY);
+  const names = warnings.map((item) => item.name).sort();
+  assert.deepStrictEqual(names, ['guidance file present', 'skills discoverable by opencode']);
+  for (const item of warnings) {
+    assert(item.remedy, `${item.name} must tell the operator what to do`);
+    assert.equal(readiness.statusOf(item), 'WARN');
+  }
+
+  // --strict exists so CI can refuse the advisory gaps.
+  assert.equal(readiness.summarize(checks, { strict: true }).ok, false, '--strict must fail on advisory gaps');
+
+  // A genuinely broken install is still a hard failure.
+  const stub = path.join(root, '.opencode', 'plugin', PLUGIN_STUB_NAME);
+  const saved = fs.readFileSync(stub, 'utf8');
+  fs.rmSync(stub);
+  try {
+    const broken = await readiness.collect(root);
+    const brokenBlocking = broken.filter((item) => !item.pass && item.severity === readiness.REQUIRED);
+    assert.deepStrictEqual(brokenBlocking.map((item) => item.name), ['plugin stub present']);
+    assert.equal(readiness.summarize(broken).ok, false, 'a missing plugin stub must be NOT READY');
+  } finally {
+    fs.writeFileSync(stub, saved, 'utf8');
+  }
+}
+
+// With guidance and skills present, nothing should be left to warn about.
+async function testReadinessOnFurnishedInstall() {
+  const root = furnishedProject();
+  try {
+    installOpencodePlugin({ citadelRoot: CITADEL_ROOT, projectRoot: root });
+    projectOpencodeAgents({ citadelRoot: CITADEL_ROOT, projectRoot: root });
+
+    const readiness = require(path.join(CITADEL_ROOT, 'scripts', 'opencode-readiness-check'));
+    const checks = await readiness.collect(root);
+    const failed = checks.filter((item) => !item.pass);
+    assert.deepStrictEqual(failed.map((item) => item.name), [], `furnished project should be clean: ${JSON.stringify(failed)}`);
+    assert.equal(readiness.summarize(checks, { strict: true }).ok, true, 'a furnished project must pass --strict');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
 async function main() {
   testMcpShape();
   testMergePreservesUserConfig();
@@ -215,11 +285,8 @@ async function main() {
     testAgentProjection(root);
     testNoCommandProjection(root);
 
-    // The readiness check must pass on a freshly installed project.
-    const readiness = require(path.join(CITADEL_ROOT, 'scripts', 'opencode-readiness-check'));
-    const checks = await readiness.collect(root);
-    const failed = checks.filter((item) => !item.pass);
-    assert.deepStrictEqual(failed.map((item) => item.name), [], `readiness failures: ${JSON.stringify(failed)}`);
+    await testReadinessOnBareInstall(root);
+    await testReadinessOnFurnishedInstall();
 
     console.log('opencode install tests pass.');
   } finally {

@@ -32,7 +32,7 @@ Non-hook surfaces are close to free:
 | Surface | opencode native path | Citadel work |
 |---|---|---|
 | Guidance | `AGENTS.md`, then `CLAUDE.md` (`session/instruction.ts:61-68`) | none — reuse Codex's `AGENTS.md` renderer |
-| Skills | `.claude/skills/**/SKILL.md`, `.agents/skills/**/SKILL.md`, `.opencode/{skill,skills}/**/SKILL.md` (`skill/index.ts:21-24,187-207`) | none — opencode reads Citadel's existing `.claude/skills/` projection directly |
+| Skills | `.claude/skills/**/SKILL.md`, `.agents/skills/**/SKILL.md`, `.opencode/{skill,skills}/**/SKILL.md` (`skill/index.ts:21-24,187-207`) | **a projector is needed and does not exist.** This row originally read "none — opencode reads Citadel's existing `.claude/skills/` projection directly", which phase 5 disproved: there is no such projection. Citadel's skills live in `<citadel>/skills` and reach Claude Code through the plugin marketplace, which opencode has no equivalent of, so a correct install yields zero Citadel skills and zero Citadel slash commands |
 | Agents | `.opencode/{agent,agents}/**/*.md` (`config/agent.ts:13`) | thin projector, mirror `runtimes/codex/generators/project-agents.js` |
 | Commands | `.opencode/{command,commands}/**/*.md` | none — opencode registers every discovered skill as a command (`command/index.ts:134`), and an explicit command file *shadows* the skill, so projecting would risk overriding the live one |
 | MCP | `opencode.json` `mcp` block | config emit for `citadel-state`, `codebase-memory` |
@@ -597,12 +597,31 @@ also need a `.citadel/project.md` spec, which the opencode install path does not
 create: the scratch project's `.citadel/` held only `plugin-root.txt`, `scripts/`
 and `version.txt`. The renderer is therefore currently unreachable code.
 
-The consequence is worth stating plainly: `opencode-readiness-check.js` asserts
+The consequence is worth stating plainly: `opencode-readiness-check.js` asserted
 `guidance file present` and `skills discoverable by opencode`, and the installer
-deliberately produces neither, so **a fresh correct install fails its own
-readiness check and the script exits 1**. Either the installer should project
-both, or the check should mark them advisory. That is a phase-4 decision to
-revisit, not something phase 5 changed.
+deliberately produces neither, so **a fresh correct install failed its own
+readiness check and the script exited 1**.
+
+*Resolved after phase 5.* The check now carries two severities. **Required**
+covers what `opencode-install.js` guarantees it wrote — the plugin stub, a
+parseable `opencode.json`, the `citadel-state` MCP entry, a resolved Node binary —
+plus the live proof that the pre-tool gate blocks a `.env` read; only these set
+the exit code. **Advisory** covers capability a project gains by supplying
+something Citadel does not project: guidance, skills, and agents (the last
+because `--skip-agents` is a supported choice). Advisory failures render as WARN
+with a remedy line and still exit 0; `--strict` makes them fatal for CI.
+
+Downgrading is not hiding: both gaps are still reported on every run, each with
+what to do about it, and a test asserts they appear as WARN with a remedy.
+Restoring either to required, downgrading a required check, ignoring `--strict`,
+or dropping the remedy text each fail the suite.
+
+The root cause was a test fixture, not the check. `scratchProject()` in
+`scripts/test-opencode-install.js` hand-created `AGENTS.md` and
+`.claude/skills/do/SKILL.md` and then asserted the readiness check passed — it
+encoded the assumption instead of testing it, and hid the gap for a whole phase.
+The fixture is now deliberately bare, with a separate `furnishedProject()` for
+the case where every advisory check should also pass.
 
 *Exit met:* `docs/OPENCODE_INSTALLATION_GUIDE.md` written from these
 observations. Items 1-3 pass, so `hooks: partial` stands unchanged;
