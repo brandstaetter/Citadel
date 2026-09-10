@@ -610,7 +610,7 @@ let _codexCmd = undefined;
 function findClaudeCLI() {
   if (_claudeCmd !== undefined) return _claudeCmd;
 
-  const candidates = ['claude', 'claude.exe', 'npx claude'];
+  const candidates = ['claude', 'claude.exe'];
   for (const cmd of candidates) {
     try {
       const [bin, ...binArgs] = cmd.split(' ');
@@ -649,7 +649,7 @@ function executeClaudeScenario(scenario, claudeCmd, tmpDir) {
   try {
     const output = execFileSync(
       bin,
-      [...binArgs, '--plugin-dir', PLUGIN_ROOT, '--print', '--dangerously-skip-permissions', scenario.input],
+      [...binArgs, '--plugin-dir', PLUGIN_ROOT, '--print', '--permission-mode', 'default', '--', scenario.input],
       {
         cwd: tmpDir,
         timeout: scenario.timeout,
@@ -913,6 +913,17 @@ function main() {
       try {
         tmpDir = setupProjectState(scenario.state);
         if (isCodexRuntime) setupCodexProjectRuntime(tmpDir);
+        // Explicit execution selects a skill. Enable its product bundle only in
+        // this disposable fixture, using the same governed CLI as an operator.
+        const bundle = require('../core/config/bundle-catalog').bundleForSkill(scenario.skill);
+        if (bundle) {
+          execFileSync(process.execPath, [path.join(PLUGIN_ROOT, 'scripts/citadel-config.js'),
+            'enable', bundle, '--project-root', tmpDir, '--runtime', isCodexRuntime ? 'codex' : 'claude-code',
+            '--allow-degraded-runtime', '--apply', '--json'], {
+            cwd: tmpDir, encoding: 'utf8', stdio: 'pipe', timeout: 30000,
+            env: { ...process.env, CLAUDE_PROJECT_DIR: tmpDir },
+          });
+        }
         const telemetryBefore = VERIFY_HOOKS ? snapshotTelemetry(tmpDir) : null;
         const execResult = isCodexRuntime
           ? executeCodexScenario(scenario, runtimeCmd, tmpDir)

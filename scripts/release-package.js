@@ -1021,6 +1021,14 @@ function sanitizeReleaseInstructions(entries, knownSkillNames) {
       if (headingMatches.length !== 1) {
         throw new Error('Release changelog projection requires exactly one current version heading with Unreleased or an ISO date');
       }
+      // Historical source notes can reference tools omitted from this artifact.
+      // Keep the exact current release section; full history stays in Git.
+      const currentStart = headingMatches[0].index;
+      const rest = source.slice(currentStart + headingMatches[0][0].length);
+      const nextHeading = rest.search(/^## /m);
+      const currentEnd = nextHeading < 0 ? source.length
+        : currentStart + headingMatches[0][0].length + nextHeading;
+      source = source.slice(currentStart, currentEnd).trim() + '\n';
       source = source.replace(currentHeading, `## ${releaseVersion}`);
       const addedSection = /### Added\r?\n[\s\S]*?(?=### Verification)/;
       if (!addedSection.test(source)) throw new Error('Release changelog projection cannot find the current Added section');

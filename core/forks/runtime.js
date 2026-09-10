@@ -15,7 +15,7 @@ const CODEX_SESSION_SCAN_LIMIT = 20000;
 const CODEX_SESSION_READ_LIMIT = 2 * 1024 * 1024;
 
 function runtimeInvocation(runtime) {
-  if (runtime === 'claude') return { command: 'claude', args: ['--print', '--output-format', 'json', '--permission-mode', 'acceptEdits', '--allowedTools', CLAUDE_ALLOWED_TOOLS] };
+  if (runtime === 'claude') return { command: 'claude', args: ['--print', '--output-format', 'json', '--permission-mode', 'default', '--allowedTools', CLAUDE_ALLOWED_TOOLS] };
   if (runtime === 'codex') return { command: 'codex', args: ['exec', '--json', '--sandbox', 'workspace-write', '-'] };
   throw new TypeError(`Unsupported fork runtime: ${runtime}`);
 }

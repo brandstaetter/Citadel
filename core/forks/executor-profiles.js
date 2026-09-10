@@ -29,12 +29,13 @@ const PROFILE_ID_PATTERN = /^[a-z][a-z0-9-]{0,47}$/;
 const MODEL_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:@-]{0,127}$/;
 const OBSERVED_MODEL_PATTERN = MODEL_ID_PATTERN;
 
-const CLAUDE_PERMISSION_MODES = Object.freeze(['acceptEdits', 'auto', 'manual', 'dontAsk', 'plan']);
+const CLAUDE_PERMISSION_MODES = Object.freeze(['default', 'acceptEdits', 'auto', 'manual', 'dontAsk', 'plan']);
 const CLAUDE_EFFORTS = Object.freeze(['low', 'medium', 'high', 'xhigh', 'max']);
 const CODEX_SANDBOXES = Object.freeze(['read-only', 'workspace-write']);
-const DEFAULT_PERMISSION_MODE = 'acceptEdits';
+const DEFAULT_PERMISSION_MODE = 'default';
 const DEFAULT_SANDBOX = 'workspace-write';
-const CLAUDE_ALLOWED_TOOLS = 'Read,Edit,Write,Glob,Grep,Bash(node *),Bash(npm *),Bash(npx *),Bash(git diff *),Bash(git status *),Bash(git rev-parse *)';
+// Auto-approval is limited to reads. Runtime policy decides edits and execution.
+const CLAUDE_ALLOWED_TOOLS = 'Read,Glob,Grep';
 const ADAPTER_OPTION_KEYS = Object.freeze({
   claude: Object.freeze(['permission_mode', 'effort']),
   codex: Object.freeze(['sandbox']),

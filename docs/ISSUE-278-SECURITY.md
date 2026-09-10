@@ -49,3 +49,22 @@ install Node/Python dependencies, or create a virtual environment. Missing resou
 remain visible in the readiness report. Prepare dependencies and any required secret
 access separately through normal approval. Review package lifecycle scripts before
 allowing them to execute; tracked manifests and `.gitignore` are not trust boundaries.
+
+## Fork execution and session context
+
+Claude forks use the native default permission mode unless a profile explicitly
+selects another mode. The automatic tool allowance is limited to Read, Glob and
+Grep. Edits and command execution remain subject to runtime permissions.
+
+The Codex argument builder rejects the retired allowHookTrust option. Native
+hook trust must be approved through the runtime.
+
+Project initialization generates delegates only for the utilities named in
+hooks_src/delegate-scripts.json. It removes retired wrappers only when their
+contents exactly match Citadel's generated wrapper. User-modified files and
+symlinks are preserved and require manual review; no new test, installer,
+release or unattended-runner delegate is created.
+
+Intake notices include pending/in-progress counts without titles or filenames
+in either plain output or UI metadata. Viewing an intake item remains an explicit
+inspection step. Counts do not authorize processing the items.
