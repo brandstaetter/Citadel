@@ -127,6 +127,7 @@
     "runtimes/codex/",
     "runtimes/github-actions/",
     "runtimes/local/",
+    "runtimes/opencode/",
     "runtimes/openai/",
     "skills/",
     "templates/"

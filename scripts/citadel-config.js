@@ -136,6 +136,7 @@ function withCodexAgentConfig(raw, args) {
 
 function runtimeContract(runtimeId) {
   if (runtimeId === 'codex') return require('../runtimes/codex/runtime');
+  if (runtimeId === 'opencode') return require('../runtimes/opencode/runtime');
   if (runtimeId === 'claude' || runtimeId === 'claude-code') {
     return require('../runtimes/claude-code/runtime');
   }

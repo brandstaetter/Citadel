@@ -1,7 +1,7 @@
 # opencode Runtime Support — Investigation and Plan
 
 Date: 2026-09-10
-Status: proposal (no implementation in this change)
+Status: phase 1 landed; phases 2-6 proposed
 
 Verified against the opencode source at `anomalyco/opencode@dev` (shallow clone,
 2026-09-10), specifically `packages/plugin/src/index.ts`,
@@ -230,12 +230,36 @@ docs/HOOKS.md, README.md, INSTALL.md
 Each phase is independently shippable and under the 35-minute execution
 boundary from `CLAUDE.md`.
 
-**Phase 1 — contract and detection.** Add `opencode` to `RUNTIME_IDS`, the
-adapter matrix (`level: hook-enabled`, missing: Stop-blocking, permission
-gating), `runtimes/opencode/runtime.js`, registry, detection. Regenerate
-vendored contracts.
-*Exit:* `node scripts/test-runtime-registry.js` and
-`node scripts/test-all.js` pass; `CITADEL_RUNTIME=opencode` resolves.
+**Phase 1 — contract and detection. DONE.** Added `opencode` to `RUNTIME_IDS`,
+the adapter matrix (`level: hook-enabled`, missing: Stop-blocking, permission
+gating), `runtimes/opencode/runtime.js`, the registry, and detection. Vendored
+contracts regenerated.
+
+Implementation note the plan missed: runtime resolution is duplicated across
+**three** sites, not one. `core/runtime/detect-runtime.js` (process tree +
+marker recency) is what the plan described, but `core/config/runtime.js`
+`detectRuntimeContract` is the one hooks, the dashboard, and the MCP server
+actually call, and `scripts/citadel-config.js` carries a third copy of the
+`runtimeContract` switch. All three now resolve `opencode`; without the second,
+`CITADEL_RUNTIME=opencode` would have reported a capability-free unknown
+runtime to every hook. The two marker scans deliberately keep different
+tiebreaks — `detect-runtime.js` picks the most recently touched marker
+directory, `config/runtime.js` stays unknown when several are present — so
+both were generalized rather than merged.
+
+`core/cli/package-cli.js` still normalizes only `claude` and `codex`, so
+`citadel install --runtime opencode` fails with `RUNTIME_NOT_FOUND`. Left
+deliberately: it is install plumbing with no installer behind it yet, and a
+clean error beats a half-wired path. Phase 4 owns it, along with
+`markerRuntimes` and the two runtime error messages that name only the two
+runtimes.
+
+*Exit met:* `test-runtime-registry.js`, `test-runtime-matrix.js`,
+`test-runtime-contracts.js`, `test-config-consumers.js`,
+`test-adoption-lifecycle.js`, `integration-test.js`, `test-cli-package.js`,
+`test-backward-compat.js`, and `generate-public-contracts.js --check` all pass;
+`CITADEL_RUNTIME=opencode` and a lone `.opencode` marker both resolve to the
+opencode contract.
 
 **Phase 2 — event normalization.** `OPENCODE_EVENT_MAP`, lowercase tool ids,
 `filePath` → `file_path`, `normalizeOpencodeHookInput`. Fixture-driven, no
