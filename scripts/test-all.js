@@ -30,6 +30,7 @@ const OPERATIONS_PROTOCOL_TEST = path.join(PLUGIN_ROOT, 'scripts', 'test-operati
 const APP_CONTRACT_TEST = path.join(PLUGIN_ROOT, 'scripts', 'test-app-contracts.js');
 const SUPERVISOR_CLIENT_TEST = path.join(PLUGIN_ROOT, 'scripts', 'test-supervisor-client.js');
 const HOOK_EVENT_TEST = path.join(PLUGIN_ROOT, 'scripts', 'test-hook-events.js');
+const OPENCODE_ADAPTER_TEST = path.join(PLUGIN_ROOT, 'scripts', 'test-opencode-adapter.js');
 const RUNTIME_REGISTRY_TEST = path.join(PLUGIN_ROOT, 'scripts', 'test-runtime-registry.js');
 const RUNTIME_MATRIX_TEST = path.join(PLUGIN_ROOT, 'scripts', 'test-runtime-matrix.js');
 const TELEMETRY_TEST = path.join(PLUGIN_ROOT, 'scripts', 'test-telemetry-core.js');
@@ -283,6 +284,7 @@ const supervisorClientPassed = run('Supervisor Client Tests', SUPERVISOR_CLIENT_
 const runtimeRegistryPassed = run('Runtime Registry Tests', RUNTIME_REGISTRY_TEST);
 const runtimeMatrixPassed = run('Runtime Matrix Tests', RUNTIME_MATRIX_TEST);
 const hookEventsPassed = run('Hook Event Tests', HOOK_EVENT_TEST);
+const opencodeAdapterPassed = run('opencode Adapter Tests', OPENCODE_ADAPTER_TEST);
 const lintArgs = STRICT ? ['--warn-as-fail'] : [];
 const skillsPassed = run('Skill Lint', SKILL_LINT, lintArgs);
 const demoPassed = run('Demo Routing Check', DEMO_TEST);
@@ -377,6 +379,7 @@ console.log(`  Supervisor client:   ${supervisorClientPassed ? 'PASS' : 'FAIL'}`
 console.log(`  Runtime registry:   ${runtimeRegistryPassed ? 'PASS' : 'FAIL'}`);
 console.log(`  Runtime matrix:     ${runtimeMatrixPassed ? 'PASS' : 'FAIL'}`);
 console.log(`  Hook events:        ${hookEventsPassed ? 'PASS' : 'FAIL'}`);
+console.log(`  opencode adapter:   ${opencodeAdapterPassed ? 'PASS' : 'FAIL'}`);
 console.log(`  Skill lint:         ${skillsPassed ? 'PASS' : 'FAIL'}`);
 console.log(`  Demo routing check: ${demoPassed ? 'PASS' : 'FAIL'}`);
 console.log(`  Telemetry core:     ${telemetryPassed ? 'PASS' : 'FAIL'}`);
@@ -455,7 +458,7 @@ for (const [label, passed] of unlockResults) {
 }
 console.log('');
 
-if (hooksPassed && securityPassed && contractsPassed && operationsProtocolPassed && appContractsPassed && supervisorClientPassed && runtimeRegistryPassed && runtimeMatrixPassed && hookEventsPassed && skillsPassed && demoPassed && telemetryPassed && telemetryIntegrityPassed && memoryBlockPassed && repositoryMemoryPassed && evidenceContractPassed && sandboxProviderPassed && skillPackagingPassed && mapSubstratePassed && deliveryPassed && deliveryPackagePassed && continueActionPassed && nextActionPassed && routePreviewPassed && loopsPassed && operatingProofPassed && usefulnessTrialPassed && operatorConsolePassed && operatorJourneyPassed && firstUseOperatorPassed && verificationPlanPassed && prReadyPassed && stackPlanPassed && deployStewardPassed && agentsMdOnlyStewardPassed && coordinationPassed && hookInstallerPassed && campaignPassed && discoveryPassed && discoveryWriterPassed && momentumPassed && momentumWatcherPassed && policyPassed && claudeRuntimePassed && codexRuntimePassed && codexNativeIntegrationPassed && codexOperationalImprovementPassed && installerPassed && cliPackagePassed && projectBootstrapPassed && compatFixturePassed && backwardCompatPassed && costTrackerPassed && dashboardPassed && docSyncPassed && fleetSessionPassed && worktreeReadinessPassed && postEditTypecheckPassed && routingSyncPassed && watchDedupPassed && teammateRebalancePassed && docSurfacesPassed && siteStoryPassed && telemetryOtlpPassed && stateHygienePassed && permissionAuditPassed && secretsLensPassed && dashboardWebPassed && dashboardPerfPassed && dashboardVisualPassed && noopDetectPassed && releaseIntegrityPassed && activationTelemetryPassed && activationCohortPassed && githubTrafficSnapshotPassed && goldenPathPassed && goldenPathMatrixPassed && productBenchmarkPassed && productProofCohortPassed && sarifCoordinatesPassed && ecosystemCompatPassed && productProofReportPassed && unlockSuitePassed) {
+if (hooksPassed && securityPassed && contractsPassed && operationsProtocolPassed && appContractsPassed && supervisorClientPassed && runtimeRegistryPassed && runtimeMatrixPassed && hookEventsPassed && opencodeAdapterPassed && skillsPassed && demoPassed && telemetryPassed && telemetryIntegrityPassed && memoryBlockPassed && repositoryMemoryPassed && evidenceContractPassed && sandboxProviderPassed && skillPackagingPassed && mapSubstratePassed && deliveryPassed && deliveryPackagePassed && continueActionPassed && nextActionPassed && routePreviewPassed && loopsPassed && operatingProofPassed && usefulnessTrialPassed && operatorConsolePassed && operatorJourneyPassed && firstUseOperatorPassed && verificationPlanPassed && prReadyPassed && stackPlanPassed && deployStewardPassed && agentsMdOnlyStewardPassed && coordinationPassed && hookInstallerPassed && campaignPassed && discoveryPassed && discoveryWriterPassed && momentumPassed && momentumWatcherPassed && policyPassed && claudeRuntimePassed && codexRuntimePassed && codexNativeIntegrationPassed && codexOperationalImprovementPassed && installerPassed && cliPackagePassed && projectBootstrapPassed && compatFixturePassed && backwardCompatPassed && costTrackerPassed && dashboardPassed && docSyncPassed && fleetSessionPassed && worktreeReadinessPassed && postEditTypecheckPassed && routingSyncPassed && watchDedupPassed && teammateRebalancePassed && docSurfacesPassed && siteStoryPassed && telemetryOtlpPassed && stateHygienePassed && permissionAuditPassed && secretsLensPassed && dashboardWebPassed && dashboardPerfPassed && dashboardVisualPassed && noopDetectPassed && releaseIntegrityPassed && activationTelemetryPassed && activationCohortPassed && githubTrafficSnapshotPassed && goldenPathPassed && goldenPathMatrixPassed && productBenchmarkPassed && productProofCohortPassed && sarifCoordinatesPassed && ecosystemCompatPassed && productProofReportPassed && unlockSuitePassed) {
   console.log(suiteSuccessMessage(dashboardPerfStatus));
   console.log('Next steps:');
   console.log('  node scripts/skill-bench.js --list      see benchmark scenarios');
@@ -549,6 +552,7 @@ if (!supervisorClientPassed) console.log('Supervisor client tests failed. Fix IP
 if (!runtimeRegistryPassed) console.log('Runtime registry tests failed. Fix runtime metadata and detection before proceeding.');
 if (!runtimeMatrixPassed) console.log('Runtime matrix tests failed. Fix adapter levels or runtime tradeoff metadata before proceeding.');
 if (!hookEventsPassed) console.log('Hook event tests failed. Fix event normalization before proceeding.');
+if (!opencodeAdapterPassed) console.log('opencode adapter tests failed. Fix the plugin hook runner before proceeding.');
 if (!skillsPassed) console.log('Skill lint failed. Fix FAIL-level issues before shipping.');
 if (!demoPassed) console.log('Demo routing check failed. Fix routing bugs in docs/index.html before shipping.');
 if (!telemetryPassed) console.log('Telemetry core check failed. Fix telemetry regressions before shipping.');

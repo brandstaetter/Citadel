@@ -1,7 +1,7 @@
 # opencode Runtime Support — Investigation and Plan
 
 Date: 2026-09-10
-Status: phases 1-2 landed; phases 3-6 proposed
+Status: phases 1-3 landed; phases 4-6 proposed
 
 Verified against the opencode source at `anomalyco/opencode@dev` (shallow clone,
 2026-09-10), specifically `packages/plugin/src/index.ts`,
@@ -303,6 +303,60 @@ reusing the Codex parser.
 *Exit:* `scripts/test-opencode-adapter.js` proves a `protect-files` block
 throws with the hook's stderr as the message, a non-security hook failure does
 not throw, an in-place `args` mutation survives, and a timeout is enforced.
+
+**Phase 3 — the plugin adapter. DONE.** Landed as two files rather than one:
+`runtimes/opencode/plugin/hook-runner.js` (CommonJS) holds the logic, and
+`runtimes/opencode/plugin/index.mjs` is the thin ESM module opencode loads. The
+split is what makes the phase testable: the Citadel suite exercises the runner
+and, via a require-cache stub, the shim's contract under plain Node, with no Bun
+and no opencode install.
+
+Two corrections to the plan:
+
+*The plan said never to `require()` Citadel CommonJS from plugin scope.* That was
+wrong, and following it would have meant duplicating the event map and the legacy
+payload projection inside the plugin, which defeats phase 2's single
+normalization and would drift. `createRequire` works under Bun, and the modules
+needed (`normalize-event`, `hook-context`, `bundles`) are pure logic with no
+native dependencies. The real constraint is narrower: do no work at import time,
+and resolve a Node binary explicitly rather than trusting `process.execPath`,
+which under Bun is the Bun binary.
+
+*`apply_patch` needed a matcher alias, which the plan did not mention.* The
+template's matchers are `Edit|Write`, `Read`, `Bash`, `Agent` — `apply_patch`
+matches none of them, so selecting hooks by the native tool id gated it with
+nothing at all. The alias is applied at match time (`apply_patch` also matches
+`Edit` and `Write`), and each selected entry's matcher is re-checked against the
+individual projected target so a `Write`-only matcher cannot fire on an `Edit`
+projection.
+
+Blocking is narrower than the plan implied. Only `tool.execute.before` can abort
+a call, so that is the single member of `BLOCKING_OPENCODE_EVENTS`. Throwing from
+`tool.execute.after` would report a tool that already succeeded as failed, so
+post-tool findings are appended to the output text the model sees instead. Hooks
+that fail on a non-blocking event never break the turn.
+
+Security hooks (`protect-files`, `external-action-gate`) fail closed on a
+blocking event: a missing implementation, a crash, a non-2 exit, a timeout, or an
+unparseable `apply_patch` body all refuse the action. Observers never do. Because
+opencode enforces no hook timeout of its own, the adapter enforces the per-hook
+timeouts from `hooks-template.json` itself, with async spawn so a 30-second
+`post-edit` cannot stall opencode's event loop.
+
+Known fail-open, and not fixable from inside the plugin: if the module fails to
+load, opencode publishes a plugin error and continues with no Citadel gating.
+The load path is kept minimal to reduce the chance, and the runtime contract
+already declares `plugin-adapter-required-for-hook-parity`.
+
+*Exit met:* `scripts/test-opencode-adapter.js`, registered in `test-all.js`,
+drives the real `hooks_src` processes — `protect-files` blocks a `.env` read and
+allows `README.md`; `external-action-gate` blocks a force-push; an `apply_patch`
+touching `.env` is blocked, as is an unparseable patch body; a missing or
+timed-out security hook fails closed; `tool.execute.after` never blocks. Eight
+deliberate mutations were each confirmed to fail the suite, including removing
+the `apply_patch` alias, letting post-tool block, replacing `output.parts`
+instead of pushing, and snapshotting `output.args` instead of passing the live
+reference. `node scripts/test-all.js --strict` passes.
 
 **Phase 4 — install and projection.** `install-plugin.js` writing
 `.opencode/plugin/citadel.js` and merging `opencode.json` (preserving
