@@ -5,10 +5,110 @@
 const path = require('path');
 const { getRuntimeDefinition, listRuntimeIds } = require(path.join(__dirname, '..', 'core', 'runtime', 'registry'));
 const { detectRuntime, VALID_RUNTIMES } = require(path.join(__dirname, '..', 'core', 'runtime', 'detect-runtime'));
+const fs = require('fs');
+const inventory = require(path.join(__dirname, '..', 'core', 'runtime', 'runtime-list-inventory'));
 
 function fail(message) {
   console.error(message);
   process.exit(1);
+}
+
+// Registering a runtime does not add it anywhere else. These two checks are what
+// stop that from being discovered in production: the first holds every declared
+// list to the coverage it claims, the second refuses to let a list go undeclared.
+function checkDeclaredRuntimeLists(registryIds) {
+  const expected = inventory.coveredRuntimes(registryIds);
+
+  for (const entry of inventory.RUNTIME_LISTS) {
+    const label = `${entry.module}#${entry.exportName}`;
+    let loaded;
+    try {
+      loaded = require(inventory.modulePath(entry));
+    } catch (error) {
+      fail(`Runtime list inventory names ${label}, but the module failed to load: ${error.message}`);
+    }
+    const values = loaded[entry.exportName];
+    if (!Array.isArray(values)) {
+      fail(`Runtime list inventory names ${label}, but that export is not an array.`);
+    }
+    if (!entry.note) fail(`Runtime list ${label} must carry a note saying what the field means.`);
+
+    // A list on a different axis owes an explanation, not coverage.
+    if (entry.kind === 'other-axis') continue;
+    if (entry.kind !== 'agent-runtime') fail(`Runtime list ${label} has an unknown kind: ${entry.kind}`);
+
+    for (const runtimeId of expected) {
+      const spelling = inventory.nameFor(runtimeId, entry.naming);
+      const present = values.includes(spelling);
+      const excuse = entry.exclusions[runtimeId];
+
+      if (!present && !excuse) {
+        fail(
+          `Runtime "${runtimeId}" is in the registry but missing from ${label} (expected "${spelling}").\n`
+          + '  Add it, or declare the omission with a reason in core/runtime/runtime-list-inventory.js.',
+        );
+      }
+      if (present && excuse) {
+        fail(
+          `${label} lists "${spelling}" but the inventory still records an exclusion for it.\n`
+          + '  Remove the stale exclusion so the reason cannot outlive the gap it described.',
+        );
+      }
+      if (excuse && excuse.length < 40) {
+        fail(`Exclusion of "${runtimeId}" from ${label} needs a real reason, not "${excuse}".`);
+      }
+    }
+
+    // An exclusion for something the registry does not have is dead weight.
+    for (const excluded of Object.keys(entry.exclusions)) {
+      if (!expected.includes(excluded)) {
+        fail(`${label} excludes "${excluded}", which is not a registry runtime.`);
+      }
+    }
+  }
+}
+
+// Without this, the next hardcoded list simply escapes the check above -- which is
+// exactly how the activation enum drifted in the first place.
+function checkNoUndeclaredRuntimeLists() {
+  const declared = new Set(
+    inventory.RUNTIME_LISTS.map((entry) => `${entry.module}#${entry.exportName}`),
+  );
+  const pattern = /const\s+([A-Z_]*RUNTIMES)\s*=\s*(?:Object\.freeze\(\s*)?\[/g;
+  const found = [];
+
+  const walk = (dir) => {
+    for (const item of fs.readdirSync(dir, { withFileTypes: true })) {
+      const full = path.join(dir, item.name);
+      if (item.isDirectory()) { walk(full); continue; }
+      if (!item.name.endsWith('.js')) continue;
+      const source = fs.readFileSync(full, 'utf8');
+      pattern.lastIndex = 0;
+      let match = pattern.exec(source);
+      while (match) {
+        const relative = path.relative(inventory.CORE_DIR, full).split(path.sep).join('/');
+        found.push(`${relative}#${match[1]}`);
+        match = pattern.exec(source);
+      }
+    }
+  };
+  walk(inventory.CORE_DIR);
+
+  const undeclared = found.filter((id) => !declared.has(id));
+  if (undeclared.length) {
+    fail(
+      `Runtime list(s) in core/ not declared in core/runtime/runtime-list-inventory.js:\n  ${undeclared.join('\n  ')}\n`
+      + '  Declare each one so its registry coverage is stated rather than assumed.',
+    );
+  }
+
+  const stale = [...declared].filter((id) => !found.includes(id));
+  if (stale.length) {
+    fail(
+      `Runtime list inventory names entries that no longer exist:\n  ${stale.join('\n  ')}\n`
+      + '  Drop them so the inventory keeps describing the code.',
+    );
+  }
 }
 
 function main() {
@@ -159,6 +259,9 @@ function main() {
     probe({ platform: 'linux', probeFails: true, parentCommand: '', markers: [] }).result.method,
     'default',
   );
+
+  checkDeclaredRuntimeLists(runtimeIds);
+  checkNoUndeclaredRuntimeLists();
 
   console.log('Runtime registry tests pass.');
 }

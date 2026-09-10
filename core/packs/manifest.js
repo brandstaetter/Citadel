@@ -25,7 +25,9 @@ const CAPABILITIES = Object.freeze([
   'workspace', 'git', 'worktrees', 'verification', 'github-read', 'github-write',
   'campaign-state', 'parallel-agents', 'deployment',
 ]);
-const RUNTIMES = Object.freeze(['claude-code', 'codex']);
+// Every runtime a pack may declare support for. Kept in step with the runtime
+// registry by the inventory in scripts/test-runtime-registry.js.
+const RUNTIMES = Object.freeze(['claude-code', 'codex', 'opencode']);
 const STOPPING_CONDITIONS = Object.freeze([
   'verified', 'failed', 'blocked', 'unknown', 'needs-human-review',
   'budget-exhausted', 'attempt-limit', 'unsafe-to-continue',
