@@ -124,9 +124,11 @@ try {
     { name: 'package.json', data: Buffer.from('{"version":"1.3.0"}') },
     {
       name: 'CHANGELOG.md',
-      data: Buffer.from('## 1.3.0 - 2026-08-12\n\n### Added\n\n- Release feature.\n\n### Verification\n\n- Verified.\n'),
+      data: Buffer.from('## 1.3.0 - 2026-08-12\n\n### Added\n\n- Release feature.\n\n### Verification\n\n- Verified.\n\n## 1.2.0 - 2026-08-11\n\nHistorical source-only docs/SHOWCASE.md\n'),
     },
   ], new Set()).find((entry) => entry.name === 'CHANGELOG.md').data.toString('utf8');
+  assert(!projectedDatedChangelog.includes('SHOWCASE.md'), 'historical source-only notes must not leak into the current slim release');
+  assert(projectedDatedChangelog.includes('Verified.'), 'current verification notes must remain');
   assert(projectedDatedChangelog.startsWith('## 1.3.0\n'),
     'release projection accepts an exact ISO-dated current changelog heading');
   assert.throws(

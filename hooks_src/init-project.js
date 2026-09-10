@@ -16,6 +16,27 @@ const configControl = require('../core/config');
 
 const PLUGIN_ROOT = path.resolve(__dirname, '..');
 const PROJECT_ROOT = process.env.CLAUDE_PROJECT_DIR || process.cwd();
+const DELEGATE_SCRIPTS = Object.freeze(require('./delegate-scripts.json'));
+
+function availableDelegates(pluginScripts) {
+  return DELEGATE_SCRIPTS.filter(file => fs.existsSync(path.join(pluginScripts, file)));
+}
+
+function pruneRetiredDelegates() {
+  const directory = path.join(PROJECT_ROOT, '.citadel', 'scripts');
+  if (!fs.existsSync(directory)) return;
+  if (fs.lstatSync(path.join(PROJECT_ROOT, '.citadel')).isSymbolicLink() ||
+      fs.lstatSync(directory).isSymbolicLink()) return;
+  for (const file of fs.readdirSync(directory)) {
+    if (!/^[a-zA-Z0-9_-]+\.(js|cjs)$/.test(file) || DELEGATE_SCRIPTS.includes(file)) continue;
+    const target = path.join(directory, file);
+    // Remove only the exact wrapper Citadel generated. Preserve user files and links.
+    const stat = fs.lstatSync(target);
+    if (stat.isFile() && !stat.isSymbolicLink() && fs.readFileSync(target, 'utf8') === generateDelegate(file)) {
+      fs.unlinkSync(target);
+    }
+  }
+}
 
 const PLANNING_DIRS_BY_BUNDLE = Object.freeze({
   persistence: Object.freeze([
@@ -88,8 +109,7 @@ function shouldSyncScripts() {
     } catch {
       return true;
     }
-    return fs.readdirSync(pluginScripts)
-      .filter((file) => file.endsWith('.js') || file.endsWith('.cjs'))
+    return availableDelegates(pluginScripts)
       .some((file) => !fs.existsSync(path.join(projectScripts, file)));
   } catch {
     return true; // on any error, sync to be safe
@@ -211,6 +231,7 @@ function main() {
     // inside the Citadel install, not inside the target project. Delegates
     // read plugin-root.txt at runtime and spawn the real script via the
     // Citadel install, so imports always resolve correctly.
+    pruneRetiredDelegates();
     if (shouldSyncScripts()) {
       const pluginScripts = path.join(PLUGIN_ROOT, 'scripts');
       const projectScripts = path.join(PROJECT_ROOT, '.citadel', 'scripts');
@@ -220,7 +241,7 @@ function main() {
           path.join(projectScripts, 'package.json'),
           `${JSON.stringify({ type: 'commonjs' }, null, 2)}\n`,
         );
-        for (const file of fs.readdirSync(pluginScripts)) {
+        for (const file of availableDelegates(pluginScripts)) {
           if (file.endsWith('.js') || file.endsWith('.cjs')) {
             fs.writeFileSync(
               path.join(projectScripts, file),
@@ -445,7 +466,7 @@ function checkDaemonState() {
     // Note: process.argv won't contain parent's -p flag -- hooks are child processes.
     const isNonInteractive = process.env.CLAUDE_NON_INTERACTIVE === '1';
 
-    if (isNonInteractive) {
+    if (isNonInteractive && daemon.localRunnerEnabled === true) {
       process.stdout.write(
         `[daemon] Active campaign: ${slug} (session #${sessions + 1}).${remaining}\n` +
         `Run: /do continue\n`

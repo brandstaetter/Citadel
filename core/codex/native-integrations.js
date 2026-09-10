@@ -491,6 +491,9 @@ function ingestCodexReview(options = {}) {
 }
 
 function buildCodexExecArgs(options = {}) {
+  if (Object.prototype.hasOwnProperty.call(options, 'allowHookTrust')) {
+    throw new TypeError('allowHookTrust is unsupported; native hook trust requires runtime approval.');
+  }
   const projectRoot = path.resolve(options.projectRoot || process.cwd());
   const sandbox = options.sandbox || 'read-only';
   const args = ['exec'];
@@ -512,7 +515,6 @@ function buildCodexExecArgs(options = {}) {
   if (options.model) args.push('--model', options.model);
   if (options.profile) args.push('--profile', options.profile);
   if (options.outputLastMessagePath) args.push('--output-last-message', options.outputLastMessagePath);
-  if (options.allowHookTrust) args.push('--dangerously-bypass-hook-trust');
   args.push(options.prompt || 'Run the benchmark scenario and report the result.');
   return args;
 }

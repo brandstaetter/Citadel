@@ -8,10 +8,11 @@ state: clean
 assert-contains:
   - campaign
 assert-not-contains:
-  - daemon.json
   - ENOENT
   - TypeError
   - undefined
+assert-files-absent:
+  - .planning/daemon.json
 ---
 
 ## What This Tests

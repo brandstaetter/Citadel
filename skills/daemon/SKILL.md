@@ -48,13 +48,24 @@ Architecture, daemon.json field reference, and rationale: docs/DAEMON.md.
    To start the tick loop, run in a separate terminal:
      npm run daemon:local
 
-   Leave that terminal open. It spawns `claude -p "/do continue"` each
+   Leave that terminal open. It spawns `claude --permission-mode default -p "/do continue"` each
    session, respects daemon.json status, and consumes zero Anthropic
    routine quota. Stop with Ctrl+C or `/daemon stop`.
 
    For true unattended background operation (machine sleeps, user away):
      /daemon start --remote    (uses RemoteTrigger, counts against 15/day cap)
    ```
+
+### Local execution safety
+
+After approval of the campaign, finite budget and session limit, set
+`localRunnerEnabled: true` in daemon.json for the local runner. The default
+limit is 10 sessions; `--max-sessions N` requires a positive integer. A finite
+positive budget and valid estimatedSpend are required. The runner stops on
+failed execution and rechecks state before each spawn. Normal runtime permission
+checks remain enabled. The noninteractive environment variable alone does not
+authorize continuation. Remote starts leave this local opt-in disabled.
+See [runner safety and migration](../../docs/ISSUE-278-SECURITY.md).
 
 ### Codex automation lane
 
@@ -116,6 +127,7 @@ Write `.planning/daemon.json`:
   "budget": 50,
   "costPerSession": 3,
   "estimatedSpend": 0,
+  "localRunnerEnabled": false,
   "sessionCount": 0,
   "interval": "30m",
   "cooldown": "60s",
