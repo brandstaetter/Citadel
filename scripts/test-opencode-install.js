@@ -16,6 +16,7 @@ const {
   MCP_SERVER_NAME,
   PLUGIN_STUB_NAME,
   citadelMcpServer,
+  citadelSkillsPath,
   installOpencodePlugin,
   mergeOpencodeConfig,
   renderPluginStub,
@@ -76,7 +77,10 @@ function testMergePreservesUserConfig() {
   assert.deepStrictEqual(config.permission, { edit: 'ask' });
   assert.deepStrictEqual(config.mcp['user-server'], { type: 'local', command: ['echo', 'hi'] });
   assert(config.mcp[MCP_SERVER_NAME], 'the Citadel MCP server must be added');
-  assert.deepStrictEqual(changes, [`set mcp.${MCP_SERVER_NAME}`]);
+  assert.deepStrictEqual(changes, [`set mcp.${MCP_SERVER_NAME}`, 'added skills.paths entry for Citadel skills']);
+
+  // skills.paths is user-owned too: Citadel appends, never replaces.
+  assert.deepStrictEqual(config.skills.paths, [citadelSkillsPath('/citadel')]);
 
   // Merging again changes nothing: the installer must be idempotent.
   const second = mergeOpencodeConfig(config, { citadelRoot: '/citadel', projectRoot: '/project' });
@@ -228,9 +232,12 @@ async function testReadinessOnBareInstall(root) {
 
   // The known gaps must still be reported — downgrading them to advisory must not
   // mean hiding them — and each must carry a remedy.
+  // Only guidance remains advisory-failing on a default install: skills are now
+  // wired through skills.paths, and agents are projected. Guidance is genuinely
+  // the project's to author — Citadel writes none.
   const warnings = checks.filter((item) => !item.pass && item.severity === readiness.ADVISORY);
   const names = warnings.map((item) => item.name).sort();
-  assert.deepStrictEqual(names, ['guidance file present', 'skills discoverable by opencode']);
+  assert.deepStrictEqual(names, ['guidance file present']);
   for (const item of warnings) {
     assert(item.remedy, `${item.name} must tell the operator what to do`);
     assert.equal(readiness.statusOf(item), 'WARN');
@@ -270,9 +277,72 @@ async function testReadinessOnFurnishedInstall() {
   }
 }
 
+// Skills reach opencode through `skills.paths` pointing at the Citadel checkout,
+// rather than by copying 48 directories into every project. opencode scans each
+// configured path with `**/SKILL.md` (skill/index.ts:211-219), so a Citadel
+// upgrade takes effect with no reinstall and nothing can go stale.
+function testSkillsPathMerge() {
+  // An existing user path must survive, and Citadel's must be appended.
+  const withUserPath = mergeOpencodeConfig(
+    { skills: { paths: ['/user/own/skills'], urls: ['https://example.test/skills'] } },
+    { citadelRoot: '/citadel', projectRoot: '/project' },
+  );
+  assert.deepStrictEqual(withUserPath.config.skills.paths, ['/user/own/skills', citadelSkillsPath('/citadel')]);
+  assert.deepStrictEqual(
+    withUserPath.config.skills.urls, ['https://example.test/skills'],
+    'sibling keys under skills must survive',
+  );
+
+  // Appending twice must not duplicate the entry.
+  const second = mergeOpencodeConfig(withUserPath.config, { citadelRoot: '/citadel', projectRoot: '/project' });
+  assert.deepStrictEqual(second.changes, [], 'a second merge must not re-add the skills path');
+
+  // --skip-skills must leave the key absent entirely rather than writing an empty
+  // array, so the user's config is untouched.
+  const skipped = mergeOpencodeConfig(null, { citadelRoot: '/citadel', projectRoot: '/project', skipSkills: true });
+  assert.equal(skipped.config.skills, undefined);
+  assert(!skipped.changes.some((item) => item.includes('skills')));
+}
+
+// The projection has to actually resolve to Citadel's real skills, and a stale
+// path — the realistic failure after a checkout moves — must be called out rather
+// than silently counting zero.
+async function testSkillsReadiness() {
+  const readiness = require(path.join(CITADEL_ROOT, 'scripts', 'opencode-readiness-check'));
+  const root = scratchProject();
+  try {
+    installOpencodePlugin({ citadelRoot: CITADEL_ROOT, projectRoot: root });
+
+    const checks = await readiness.collect(root);
+    const skills = checks.find((item) => item.name === 'skills discoverable by opencode');
+    assert(skills.pass, `a default install must discover skills: ${skills.detail}`);
+    // Every Citadel skill directory holds a SKILL.md, so the count is the real one.
+    const expected = fs.readdirSync(path.join(CITADEL_ROOT, 'skills'), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && fs.existsSync(path.join(CITADEL_ROOT, 'skills', entry.name, 'SKILL.md')))
+      .length;
+    assert(expected > 0, 'Citadel must actually have skills to project');
+    assert(skills.detail.startsWith(`${expected} `), `expected ${expected} skills, got: ${skills.detail}`);
+
+    // A stale configured path must be reported, with a different remedy from the
+    // not-installed case.
+    const configPath = path.join(root, 'opencode.json');
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    config.skills.paths = [path.join(root, 'gone', 'skills')];
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+
+    const stale = (await readiness.collect(root)).find((item) => item.name === 'skills discoverable by opencode');
+    assert(!stale.pass, 'a skills.paths entry resolving to nothing must not pass');
+    assert.match(stale.detail, /resolve to nothing/);
+    assert.match(stale.remedy, /re-run opencode-install/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
 async function main() {
   testMcpShape();
   testMergePreservesUserConfig();
+  testSkillsPathMerge();
   testYamlQuoting();
   testGuidanceTarget();
 
@@ -285,6 +355,7 @@ async function main() {
     testAgentProjection(root);
     testNoCommandProjection(root);
 
+    await testSkillsReadiness();
     await testReadinessOnBareInstall(root);
     await testReadinessOnFurnishedInstall();
 

@@ -6,8 +6,9 @@
 //
 // Much less work than the Codex installer, because opencode reads several Citadel
 // surfaces natively:
-//   guidance  AGENTS.md / CLAUDE.md            (no projection)
-//   skills    .claude/skills/**/SKILL.md       (no projection)
+//   guidance  AGENTS.md / CLAUDE.md            (yours to author; none is written)
+//   skills    scanned from the Citadel checkout through opencode.json skills.paths,
+//             so they are never copied and never go stale
 //   commands  derived from skills by opencode   (no projection — and an explicit
 //             command file would SHADOW the live skill)
 // So this writes the plugin stub, merges opencode.json, and projects agents.
@@ -26,6 +27,7 @@ Options:
   --project-root <dir>   Project to install into (default: cwd)
   --dry-run              Report every write without making it
   --skip-agents          Do not project agents into .opencode/agent
+  --skip-skills          Do not add Citadel's skills directory to skills.paths
   --json                 Machine-readable output
   -h, --help             Show this help
 `;
@@ -52,7 +54,12 @@ function run(argv = process.argv.slice(2)) {
   }
 
   const steps = [];
-  const plugin = installOpencodePlugin({ citadelRoot: CITADEL_ROOT, projectRoot, dryRun });
+  const plugin = installOpencodePlugin({
+    citadelRoot: CITADEL_ROOT,
+    projectRoot,
+    dryRun,
+    skipSkills: has(argv, '--skip-skills'),
+  });
   steps.push({
     step: 'plugin',
     pluginPath: plugin.pluginPath,
@@ -100,10 +107,10 @@ function render(result) {
     if (step.step === 'agents') lines.push(`agents:  ${step.count} projected into .opencode/agent`);
   }
   lines.push('');
-  lines.push('Natively read by opencode, so not projected:');
-  lines.push('  guidance  AGENTS.md / CLAUDE.md');
-  lines.push('  skills    .claude/skills/**/SKILL.md');
-  lines.push('  commands  derived from skills by opencode');
+  lines.push('Not copied — opencode reads these where they already live:');
+  lines.push('  guidance  AGENTS.md / CLAUDE.md (yours to author; Citadel writes none)');
+  lines.push("  skills    scanned from the Citadel checkout via opencode.json skills.paths");
+  lines.push('  commands  derived from skills by opencode, so no command files');
   lines.push('');
   lines.push('Known degradations on this runtime:');
   for (const item of result.degradations) lines.push(`  - ${item}`);

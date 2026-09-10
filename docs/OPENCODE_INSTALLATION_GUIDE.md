@@ -68,8 +68,9 @@ PASS  pre-tool gate blocks a .env read
 Confirm the resolved Node path is a **real Node**, not Bun. Override with
 `CITADEL_NODE=/path/to/node` if the probe picks the wrong one.
 
-`guidance file present` and `skills discoverable by opencode` fail on a bare
-project — neither is written by this installer. See *Skills* below.
+`guidance file present` is the one advisory gap on a bare project: opencode reads
+`AGENTS.md`/`CLAUDE.md` natively but this installer writes neither, so it is yours
+to author.
 
 ## Confirming the plugin actually loaded
 
@@ -143,28 +144,42 @@ Plugin discovery happens once per opencode **process**. Disposing and recreating
 the project instance re-runs each loaded plugin's init but does **not** rescan
 `.opencode/plugin/`. After installing Citadel into a project, restart opencode.
 
-## Skills are not projected — a real gap
+## Skills come from the checkout, not a copy
 
-opencode reads `.claude/skills/**/SKILL.md`, and Citadel's installer projects
-**nothing** there. Citadel's 48 skills live in `Citadel/skills/`, and in Claude
-Code they arrive through the plugin marketplace, which opencode has no
-equivalent of. **The result is that no Citadel skill is available in opencode out
-of the box.**
+The installer adds Citadel's skills directory to `skills.paths` in
+`opencode.json`:
 
-The mechanism itself works — a skill copied into the project's `.claude/skills/`
-is discovered and registered as a command with `source: "skill"`. Only the
-projection step is missing. Until it exists, make skills available yourself:
-
-```bash
-# per project
-cp -r /path/to/Citadel/skills/* /path/to/project/.claude/skills/
-
-# or globally, for every opencode project
-cp -r /path/to/Citadel/skills/* ~/.config/opencode/skill/
+```json
+{
+  "skills": { "paths": ["/path/to/Citadel/skills"] }
+}
 ```
 
+opencode scans every configured path with `**/SKILL.md`, so all 48 Citadel skills
+are discovered in place and each is also registered as a slash command with
+`source: "skill"`. Nothing is copied, so a Citadel upgrade takes effect with no
+reinstall and no projected copy can go stale — the same approach the plugin stub
+takes.
+
+`skills.paths` is user-owned, so Citadel appends to it and never replaces it;
+re-running the installer does not duplicate the entry. `--skip-skills` leaves the
+key absent entirely.
+
+**Requires opencode >= 1.18.30**, where `skills.paths` was verified to exist. The
+top-level config is a strict schema, so on an older build this key would fail the
+decode and opencode would refuse to start.
+
+If the Citadel checkout moves, the configured path goes stale and opencode simply
+logs `skill path not found`. The readiness check reports that case explicitly —
+`skills.paths resolve to nothing` — rather than quietly counting zero. Re-run the
+installer to repoint it.
+
 opencode warns `duplicate skill name` when the same skill is found in several
-roots; it keeps the first and ignores the rest.
+roots. The later scan wins: global `.claude`/`.agents`, then project
+`.claude`/`.agents`, then `.opencode` config dirs, then `skills.paths`. So a
+project-local copy of a skill is overridden by the `skills.paths` entry — if you
+want to customize one, point `skills.paths` at your own directory instead of
+Citadel's.
 
 ## Guidance is not projected either
 
@@ -178,9 +193,8 @@ install path does not create (`.citadel/` gets only `plugin-root.txt`,
 So `AGENTS.md` is yours to author. opencode reads `AGENTS.md` first, then
 `CLAUDE.md`, so an existing `CLAUDE.md` already works with no extra step.
 
-A fresh, correct install reports both `guidance file present` and
-`skills discoverable by opencode` as **WARN**, with a remedy line, and still
-exits 0. The readiness check separates two severities: *required* covers what the
+A fresh, correct install reports `guidance file present` as **WARN**, with a
+remedy line, and still exits 0. The readiness check separates two severities: *required* covers what the
 installer guarantees plus the live proof that the gate blocks, and only those set
 the exit code; *advisory* covers capability a project gains by supplying
 something Citadel does not project. Pass `--strict` to make the advisory gaps

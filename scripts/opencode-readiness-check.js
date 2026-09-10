@@ -9,7 +9,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const { PLUGIN_STUB_NAME, MCP_SERVER_NAME } = require('../runtimes/opencode/generators/install-plugin');
+const { PLUGIN_STUB_NAME, MCP_SERVER_NAME, citadelSkillsPath } = require('../runtimes/opencode/generators/install-plugin');
 const { runHooksForEvent, resolveNodeBinary } = require('../runtimes/opencode/plugin/hook-runner');
 const runtime = require('../runtimes/opencode/runtime');
 
@@ -76,19 +76,37 @@ async function collect(projectRoot) {
     'add an AGENTS.md (or CLAUDE.md); opencode reads it natively, Citadel does not write one',
   ));
 
-  // Known gap, verified live in phase 5: Citadel's skills live in the Citadel
-  // checkout and reach Claude Code through the plugin marketplace, which opencode
-  // has no equivalent of. There is no skills projector yet, so a correct install
-  // yields zero Citadel skills and therefore zero Citadel slash commands.
-  const skillsDir = path.join(projectRoot, '.claude', 'skills');
-  const skillCount = fs.existsSync(skillsDir)
-    ? fs.readdirSync(skillsDir, { withFileTypes: true }).filter((entry) => entry.isDirectory()).length
+  // Skills reach opencode through `skills.paths` in opencode.json, pointing at the
+  // Citadel checkout. Check the configured paths actually resolve to directories
+  // holding SKILL.md files — a stale path from a moved checkout is the realistic
+  // failure, and it is silent. Project-local `.claude/skills` also counts, since
+  // opencode scans it natively.
+  const configuredPaths = Array.isArray(config?.skills?.paths) ? config.skills.paths : [];
+  const citadelSkills = citadelSkillsPath(CITADEL_ROOT);
+  const resolvedSkillCounts = configuredPaths.map((item) => {
+    const dir = path.isAbsolute(item) ? item : path.join(projectRoot, item);
+    if (!fs.existsSync(dir)) return { dir, count: 0, missing: true };
+    const count = fs.readdirSync(dir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && fs.existsSync(path.join(dir, entry.name, 'SKILL.md')))
+      .length;
+    return { dir, count, missing: false };
+  });
+  const externalSkillsDir = path.join(projectRoot, '.claude', 'skills');
+  const externalCount = fs.existsSync(externalSkillsDir)
+    ? fs.readdirSync(externalSkillsDir, { withFileTypes: true }).filter((entry) => entry.isDirectory()).length
     : 0;
+  const totalSkills = resolvedSkillCounts.reduce((sum, item) => sum + item.count, 0) + externalCount;
+  const broken = resolvedSkillCounts.filter((item) => item.missing || item.count === 0);
+
   checks.push(advisory(
     'skills discoverable by opencode',
-    skillCount > 0,
-    `${skillCount} in .claude/skills`,
-    'no skills projector exists yet; copy the skills you want from <citadel>/skills into .claude/skills',
+    totalSkills > 0 && broken.length === 0,
+    broken.length > 0
+      ? `${totalSkills} found, but these skills.paths resolve to nothing: ${broken.map((item) => item.dir).join(', ')}`
+      : `${totalSkills} (${resolvedSkillCounts.length} configured path(s), ${externalCount} in .claude/skills)`,
+    broken.length > 0
+      ? 're-run opencode-install.js; a skills.paths entry points somewhere that no longer holds skills'
+      : `run opencode-install.js without --skip-skills to add ${citadelSkills} to skills.paths`,
   ));
 
   // Agents are projected by default, but --skip-agents is a supported choice, so

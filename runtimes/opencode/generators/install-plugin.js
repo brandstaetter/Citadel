@@ -50,9 +50,25 @@ function renderPluginStub(citadelRoot) {
   ].join('\n');
 }
 
+// opencode scans every path in `skills.paths` with `**/SKILL.md`
+// (`skill/index.ts:211-219`), so Citadel's skills are discovered straight from the
+// checkout rather than copied into the project. Same philosophy as the plugin
+// stub: point at the source, so a Citadel upgrade takes effect with no reinstall
+// and nothing can go stale.
+//
+// Requires opencode >= 1.18.30, where `skills.paths` was verified to exist
+// (`core/v1/config/skills.ts` at tag v1.18.30 — the build phase 5 ran against).
+// The top-level config is a plain Schema.Struct, so on a build without the key
+// this fails the decode and opencode hard-fails at startup. That is the same trap
+// the MCP `args` key set, which is why the version was checked before relying on
+// it rather than after.
+function citadelSkillsPath(citadelRoot) {
+  return path.join(citadelRoot, 'skills');
+}
+
 // Shape per opencode's McpLocalConfig (core/v1/config/mcp.ts): `command` is a
 // single argv array — there is no separate `args` key — `environment` rather than
-// `env`, and `timeout` is milliseconds. That schema is a plain Struct, so an
+// `env`, and `timeout` is milliseconds. That schema is a plain Struct too, so an
 // unknown key fails the decode and opencode hard-fails at startup.
 function citadelMcpServer(citadelRoot, projectRoot) {
   return {
@@ -71,7 +87,7 @@ function citadelMcpServer(citadelRoot, projectRoot) {
  * Merge Citadel's keys into an existing opencode.json without disturbing others.
  * Returns the merged object plus what changed, so callers can report a dry run.
  */
-function mergeOpencodeConfig(existing, { citadelRoot, projectRoot }) {
+function mergeOpencodeConfig(existing, { citadelRoot, projectRoot, skipSkills = false }) {
   const config = existing && typeof existing === 'object' && !Array.isArray(existing)
     ? { ...existing }
     : {};
@@ -91,6 +107,18 @@ function mergeOpencodeConfig(existing, { citadelRoot, projectRoot }) {
   }
   config.mcp = mcp;
 
+  // Skills: append Citadel's skills directory, preserving any the user added.
+  // Additive and deduped, because this array is user-owned too.
+  if (!skipSkills) {
+    const skillsPath = citadelSkillsPath(citadelRoot);
+    const existingPaths = Array.isArray(config.skills?.paths) ? [...config.skills.paths] : [];
+    if (!existingPaths.includes(skillsPath)) {
+      existingPaths.push(skillsPath);
+      changes.push('added skills.paths entry for Citadel skills');
+    }
+    config.skills = { ...(config.skills || {}), paths: existingPaths };
+  }
+
   return { config, changes };
 }
 
@@ -105,7 +133,11 @@ function installOpencodePlugin(options = {}) {
 
   const stub = renderPluginStub(citadelRoot);
   const { value: existingConfig } = readJsonIfPresent(configPath);
-  const { config, changes } = mergeOpencodeConfig(existingConfig, { citadelRoot, projectRoot });
+  const { config, changes } = mergeOpencodeConfig(existingConfig, {
+    citadelRoot,
+    projectRoot,
+    skipSkills: options.skipSkills === true,
+  });
 
   const existingStub = fs.existsSync(pluginPath) ? fs.readFileSync(pluginPath, 'utf8') : null;
   const stubChanged = existingStub !== stub;
@@ -139,6 +171,7 @@ function installOpencodePlugin(options = {}) {
 
 module.exports = Object.freeze({
   GENERATED_MARKER,
+  citadelSkillsPath,
   MCP_SERVER_NAME,
   PLUGIN_STUB_NAME,
   citadelMcpServer,

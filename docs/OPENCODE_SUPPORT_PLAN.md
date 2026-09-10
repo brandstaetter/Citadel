@@ -32,7 +32,7 @@ Non-hook surfaces are close to free:
 | Surface | opencode native path | Citadel work |
 |---|---|---|
 | Guidance | `AGENTS.md`, then `CLAUDE.md` (`session/instruction.ts:61-68`) | none — reuse Codex's `AGENTS.md` renderer |
-| Skills | `.claude/skills/**/SKILL.md`, `.agents/skills/**/SKILL.md`, `.opencode/{skill,skills}/**/SKILL.md` (`skill/index.ts:21-24,187-207`) | **a projector is needed and does not exist.** This row originally read "none — opencode reads Citadel's existing `.claude/skills/` projection directly", which phase 5 disproved: there is no such projection. Citadel's skills live in `<citadel>/skills` and reach Claude Code through the plugin marketplace, which opencode has no equivalent of, so a correct install yields zero Citadel skills and zero Citadel slash commands |
+| Skills | also every path in `skills.paths`, scanned `**/SKILL.md` (`skill/index.ts:211-219`) | **one config key.** This row first claimed "none — opencode reads Citadel's existing `.claude/skills/` projection directly", which phase 5 disproved: no such projection exists. Resolved by adding `<citadel>/skills` to `skills.paths` in `opencode.json`, so all 48 are discovered from the checkout with nothing copied. Needs opencode >= 1.18.30 |
 | Agents | `.opencode/{agent,agents}/**/*.md` (`config/agent.ts:13`) | thin projector, mirror `runtimes/codex/generators/project-agents.js` |
 | Commands | `.opencode/{command,commands}/**/*.md` | none — opencode registers every discovered skill as a command (`command/index.ts:134`), and an explicit command file *shadows* the skill, so projecting would risk overriding the live one |
 | MCP | `opencode.json` `mcp` block | config emit for `citadel-state`, `codebase-memory` |
@@ -543,10 +543,29 @@ and therefore zero Citadel slash commands.
 The reading of `command/index.ts` was right — copying one skill
 (`skills/architect`) into the project's `.claude/skills/` made opencode expose it
 both as a skill and as a command with `source: "skill"`, unshadowed, with the
-body as the template. Only the projection step is missing. Phase 4 was right to
-drop `project-commands.js`; what it needed instead, and does not have, is a
-*skills* projector. The installation guide documents the manual copy as the
-interim workaround.
+body as the template. Only the projection step was missing. Phase 4 was right to
+drop `project-commands.js`; what it needed instead was a *skills* projector.
+
+*Resolved after phase 5, and not by copying.* opencode's config has a
+`skills.paths` array, scanned `**/SKILL.md` (`skill/index.ts:211-219`), so the
+installer adds `<citadel>/skills` to it and all 48 skills are discovered straight
+from the checkout. No copies, so a Citadel upgrade needs no reinstall and nothing
+can go stale — the same approach the plugin stub already took. The array is
+user-owned, so Citadel appends and dedupes rather than replacing; `--skip-skills`
+omits the key entirely.
+
+This needs opencode >= 1.18.30. The top-level config is a plain `Schema.Struct`,
+so on a build predating `skills.paths` the key would fail the decode and opencode
+would refuse to start. `core/v1/config/skills.ts` was checked at tag v1.18.30 —
+the build this phase ran against — *before* relying on the key, because the MCP
+`args` mistake in phase 4 was exactly this failure mode found too late.
+
+One consequence worth knowing: `skills.paths` is scanned **last**, after global
+and project `.claude`/`.agents` and the `.opencode` dirs, and `add()` overwrites
+on a name collision. So the Citadel entry wins over a project-local copy of the
+same skill. (This also corrects the note above: on a duplicate, the *later* scan
+wins, not the first.) To customize a skill, point `skills.paths` at your own
+directory rather than editing a copy that will be overridden.
 
 **8 — telemetry lands.** `.planning/telemetry/` in the **project** fills with
 `audit.jsonl`, `hook-timing.jsonl`, `hook-errors.jsonl`, `session-costs.jsonl`.
