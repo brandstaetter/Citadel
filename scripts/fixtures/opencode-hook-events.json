@@ -1,0 +1,249 @@
+{
+  "description": "opencode plugin hook payloads paired with the Claude Code payload that carries the same meaning. The normalization layer must reduce each pair to the same Citadel envelope fields, so a hook cannot tell which runtime it is running under.",
+  "equivalents": [
+    {
+      "name": "pre-tool edit",
+      "expect": {
+        "event_id": "pre_tool",
+        "tool_name": "Edit",
+        "tool_input": {
+          "file_path": "/repo/src/file.ts",
+          "oldString": "a",
+          "newString": "b"
+        }
+      },
+      "opencode": {
+        "hook_event_name": "tool.execute.before",
+        "sessionID": "ses_abc",
+        "callID": "call_1",
+        "tool": "edit",
+        "directory": "/repo",
+        "args": {
+          "filePath": "/repo/src/file.ts",
+          "oldString": "a",
+          "newString": "b"
+        }
+      },
+      "claude": {
+        "hook_event_name": "PreToolUse",
+        "session_id": "ses_abc",
+        "cwd": "/repo",
+        "tool_name": "Edit",
+        "tool_input": {
+          "file_path": "/repo/src/file.ts",
+          "oldString": "a",
+          "newString": "b"
+        }
+      }
+    },
+    {
+      "name": "pre-tool read of a windows path",
+      "expect": {
+        "event_id": "pre_tool",
+        "tool_name": "Read",
+        "tool_input": {
+          "file_path": "C:/repo/.env"
+        }
+      },
+      "opencode": {
+        "hook_event_name": "tool.execute.before",
+        "tool": "read",
+        "args": {
+          "filePath": "C:\\repo\\.env"
+        }
+      },
+      "claude": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Read",
+        "tool_input": {
+          "file_path": "C:\\repo\\.env"
+        }
+      }
+    },
+    {
+      "name": "pre-tool shell command",
+      "expect": {
+        "event_id": "pre_tool",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git push origin main"
+        }
+      },
+      "opencode": {
+        "hook_event_name": "tool.execute.before",
+        "tool": "bash",
+        "args": {
+          "command": "git push origin main"
+        }
+      },
+      "claude": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "git push origin main"
+        }
+      }
+    },
+    {
+      "name": "subagent spawn normalizes to the Agent matcher",
+      "expect": {
+        "event_id": "pre_tool",
+        "tool_name": "Agent",
+        "tool_input": {
+          "description": "review the diff"
+        }
+      },
+      "opencode": {
+        "hook_event_name": "tool.execute.before",
+        "tool": "task",
+        "args": {
+          "description": "review the diff"
+        }
+      },
+      "claude": {
+        "hook_event_name": "PreToolUse",
+        "tool_name": "Agent",
+        "tool_input": {
+          "description": "review the diff"
+        }
+      }
+    },
+    {
+      "name": "post-tool write",
+      "expect": {
+        "event_id": "post_tool",
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "/repo/README.md"
+        }
+      },
+      "opencode": {
+        "hook_event_name": "tool.execute.after",
+        "tool": "write",
+        "args": {
+          "filePath": "/repo/README.md"
+        }
+      },
+      "claude": {
+        "hook_event_name": "PostToolUse",
+        "tool_name": "Write",
+        "tool_input": {
+          "file_path": "/repo/README.md"
+        }
+      }
+    },
+    {
+      "name": "prompt submission",
+      "expect": {
+        "event_id": "user_prompt_submit",
+        "tool_name": "Unknown",
+        "tool_input": {}
+      },
+      "opencode": {
+        "hook_event_name": "chat.message",
+        "sessionID": "ses_abc",
+        "model": {
+          "providerID": "anthropic",
+          "modelID": "claude-opus-5"
+        }
+      },
+      "claude": {
+        "hook_event_name": "UserPromptSubmit",
+        "session_id": "ses_abc",
+        "model": "anthropic/claude-opus-5"
+      }
+    },
+    {
+      "name": "session end",
+      "expect": {
+        "event_id": "session_end",
+        "tool_name": "Unknown",
+        "tool_input": {}
+      },
+      "opencode": {
+        "hook_event_name": "dispose"
+      },
+      "claude": {
+        "hook_event_name": "SessionEnd"
+      }
+    },
+    {
+      "name": "compaction boundaries",
+      "expect": {
+        "event_id": "pre_compact",
+        "tool_name": "Unknown",
+        "tool_input": {}
+      },
+      "opencode": {
+        "hook_event_name": "experimental.session.compacting"
+      },
+      "claude": {
+        "hook_event_name": "PreCompact"
+      }
+    },
+    {
+      "name": "permission request",
+      "expect": {
+        "event_id": "permission_request",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "rm -rf build"
+        }
+      },
+      "opencode": {
+        "hook_event_name": "permission.asked",
+        "tool": "bash",
+        "args": {
+          "command": "rm -rf build"
+        }
+      },
+      "claude": {
+        "hook_event_name": "PermissionRequest",
+        "tool_name": "Bash",
+        "tool_input": {
+          "command": "rm -rf build"
+        }
+      }
+    },
+    {
+      "name": "file changed",
+      "expect": {
+        "event_id": "file_changed",
+        "tool_name": "Unknown",
+        "tool_input": {}
+      },
+      "opencode": {
+        "hook_event_name": "file.edited"
+      },
+      "claude": {
+        "hook_event_name": "FileChanged"
+      }
+    }
+  ],
+  "mapped": [
+    "tool.execute.before",
+    "tool.execute.after",
+    "chat.message",
+    "plugin.init",
+    "dispose",
+    "config",
+    "experimental.session.compacting",
+    "session.compacted",
+    "session.idle",
+    "file.edited",
+    "file.watcher.updated",
+    "permission.asked"
+  ],
+  "deliberatelyUnmapped": {
+    "permission.replied": "a reply may allow or deny, so only the adapter knows whether it is a denial",
+    "session.error": "a session failure is not Claude Code's StopFailure, which fires when the stop hook itself fails",
+    "chat.params": "LLM sampling parameters, not a Citadel lifecycle event",
+    "shell.env": "environment injection, not a lifecycle event",
+    "tool.definition": "tool schema rewriting, not a lifecycle event",
+    "command.execute.before": "opencode slash-command expansion has no Citadel event",
+    "todo.updated": "no Citadel counterpart",
+    "session.created": "the plugin init function is the session-start signal instead",
+    "lsp.updated": "no Citadel counterpart",
+    "tui.toast.show": "presentation only"
+  }
+}

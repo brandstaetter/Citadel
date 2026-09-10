@@ -1,7 +1,7 @@
 # opencode Runtime Support — Investigation and Plan
 
 Date: 2026-09-10
-Status: phase 1 landed; phases 2-6 proposed
+Status: phases 1-2 landed; phases 3-6 proposed
 
 Verified against the opencode source at `anomalyco/opencode@dev` (shallow clone,
 2026-09-10), specifically `packages/plugin/src/index.ts`,
@@ -102,7 +102,7 @@ stronger gate than Claude Code's `PermissionRequest`.
 | `config_change` | `config` hook | full | receives full resolved config |
 | `file_changed` | `file.edited`, `file.watcher.updated` events | full | observe-only |
 | `permission_request` | `permission.asked` event | **degraded** | see 2.3 |
-| `permission_denied` | `permission.replied` event | partial | observe-only |
+| `permission_denied` | `permission.replied` event | partial | observe-only, and **not** statically mapped: a reply may allow or deny, so only the adapter can tell whether it is a denial |
 | `task_created` / `task_completed` | `session.created`, `task` tool hooks | partial | |
 | `post_tool_batch`, `post_tool_failure`, `stop_failure`, `user_prompt_expansion`, `instructions_loaded`, `cwd_changed`, `elicitation*`, `teammate_idle`, `worktree_*` | — | none | no equivalent; skip with a recorded warning, same as the Codex installer does |
 
@@ -261,11 +261,39 @@ runtimes.
 `CITADEL_RUNTIME=opencode` and a lone `.opencode` marker both resolve to the
 opencode contract.
 
-**Phase 2 — event normalization.** `OPENCODE_EVENT_MAP`, lowercase tool ids,
-`filePath` → `file_path`, `normalizeOpencodeHookInput`. Fixture-driven, no
-opencode needed.
-*Exit:* new fixtures under `scripts/fixtures/` normalize to the same envelopes
-the Claude and Codex adapters produce for equivalent input.
+**Phase 2 — event normalization. DONE.** Added `OPENCODE_EVENT_MAP`, lowercase
+tool ids, `filePath` → `file_path` canonicalization, and
+`normalizeOpencodeHookInput`. `createEnvelope` now selects its event map from an
+`EVENT_MAPS` registry instead of `runtime === 'codex' ? CODEX : CLAUDE`.
+
+The adapter absorbs opencode's field names (`sessionID`, `callID`, `tool`,
+`args`, `directory`, and the `{providerID, modelID}` model object) so phase 3
+can pass `{ ...input, args: output.args }` straight through. It keeps `raw` as
+the caller's own object rather than a copy, because the plugin has to mutate
+opencode's argument object in place — the only mutation opencode honors.
+
+`task` maps to `Agent`, so the governance hook's existing `Agent` matcher fires
+on opencode subagent spawns. `apply_patch` is deliberately *not* in the tool
+map: adapters split it into per-target Edit/Write projections, which needs the
+native id to survive normalization.
+
+Correction to the event table in 2.2: `permission_denied` ← `permission.replied`
+was wrong. A reply may allow or deny, so a static mapping would mislabel
+allowed actions as denials half the time. `permission.replied` is now
+deliberately unmapped, and resolving a denial is the phase-3 adapter's job.
+`session.error` is likewise unmapped — a session failure is not Claude Code's
+`StopFailure`, which fires when the stop hook itself fails. The fixture records
+every deliberate omission with its reason, and the test fails if any of them
+silently acquires an event id.
+
+*Exit met:* `scripts/fixtures/opencode-hook-events.json` drives a cross-runtime
+equivalence test — each opencode payload and its Claude Code twin must reduce to
+identical envelope fields — plus drift detection between the fixture's mapped
+list and the shipped map. Beyond the stated exit, the real hooks were driven
+with opencode-shaped payloads end to end: `protect-files` blocks a `read` of
+`.env` and allows `README.md`; `external-action-gate` blocks
+`git push --force origin main` (P-001) and `gh pr merge 1`, and allows a plain
+`git push`, which is tier `allow` by default.
 
 **Phase 3 — the plugin adapter.** `runtimes/opencode/plugin/index.mjs` wiring
 `tool.execute.before` (throw on exit 2), `tool.execute.after`, `chat.message`,
