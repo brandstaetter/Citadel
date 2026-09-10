@@ -5,7 +5,7 @@
 
 'use strict';
 
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 const path = require('path');
 
 async function run() {
@@ -16,10 +16,11 @@ async function run() {
   // it handles invalid input gracefully (exits 0, doesn't crash)
   try {
     // Test 1: Empty stdin should not crash
-    const result = execSync(
-      `echo "{}" | node "${adapterPath}" governance`,
+    const result = execFileSync(
+      process.execPath, [adapterPath, 'governance'],
       {
         encoding: 'utf8',
+        input: '{}',
         timeout: 10000,
         stdio: ['pipe', 'pipe', 'pipe'],
         env: { ...process.env, CITADEL_RUNTIME: 'codex' },

@@ -8,7 +8,7 @@
 const fs   = require('fs');
 const path = require('path');
 const os   = require('os');
-const { execSync } = require('child_process');
+const { execFileSync } = require('child_process');
 
 async function run() {
   const errors = [];
@@ -31,7 +31,7 @@ async function run() {
 
     // Run codex-compat.js
     const script = path.join(__dirname, '..', 'codex-compat.js');
-    execSync(`node "${script}" "${tmpDir}"`, {
+    execFileSync(process.execPath, [script, tmpDir], {
       encoding: 'utf8',
       timeout: 15000,
       stdio: ['pipe', 'pipe', 'pipe'],
