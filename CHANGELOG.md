@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.3.7 - 2026-09-10
+
+### Fixed
+
+- Package fixes-only changelogs without requiring feature or verification headings.
+- Finish the portable Claude executable cleanup reported by Hannes Brandstaetter-Mueller in #278, and remove a machine-specific MCP setup example.
+- Restore the read-only health delegate omitted from the restricted utility list.
+- Run upgrade-time coordination cleanup from the current plugin instead of a stale project delegate.
+- Add regression coverage for release-version consistency, older project state, relocated plugin roots, and delegates in ES-module projects.
+
 ## 1.3.6 - 2026-09-10
 
 ### Added

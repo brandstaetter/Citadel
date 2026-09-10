@@ -68,3 +68,15 @@ release or unattended-runner delegate is created.
 Intake notices include pending/in-progress counts without titles or filenames
 in either plain output or UI metadata. Viewing an intake item remains an explicit
 inspection step. Counts do not authorize processing the items.
+
+## Portable executable discovery and upgrades
+
+The source benchmark runners use Claude from the runtime search path. On Windows,
+known npm shims are launched through their JavaScript entrypoint without a shell.
+Set `CITADEL_CLAUDE_BIN` to a native executable path when an override is needed.
+Historical benchmark model and CLI-version pins remain part of their evidence contract.
+
+Session initialization runs coordination cleanup from the currently loaded plugin,
+then refreshes the project delegates and plugin-root marker. Release verification
+checks the package, lockfile, plugin manifests, marketplace entries, changelog and
+current install commands against the same release version.

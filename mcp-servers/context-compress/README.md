@@ -42,7 +42,7 @@ Add to `~/.claude/settings.json`:
 "mcpServers": {
   "context-compress": {
     "command": "node",
-    "args": ["C:/Users/gammo/Desktop/Citadel/mcp-servers/context-compress/index.js"],
+    "args": ["/absolute/path/to/Citadel/mcp-servers/context-compress/index.js"],
     "env": {
       "CITADEL_PROJECT_ROOT": "C:/absolute/path/to/project"
     }
