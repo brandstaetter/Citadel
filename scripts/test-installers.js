@@ -9,6 +9,16 @@ const os = require('os');
 const path = require('path');
 const activation = require('../core/telemetry/activation');
 const installer = require('./install');
+const {
+  assertPortableSharedOutputs,
+  classifyOutputs,
+  ensureMachineLocalExcludes,
+  guidanceOwner,
+  inspectInstallInventory,
+  withGuidanceOwner,
+} = require('../core/runtime/install-contract');
+const { installClaudeHooks } = require('../runtimes/claude-code/generators/install-hooks');
+const { installCodexHooks } = require('../runtimes/codex/generators/install-hooks');
 
 const CITADEL_ROOT = path.resolve(__dirname, '..');
 
@@ -184,6 +194,105 @@ function testUnifiedDispatcherRespectsNonInstallModesAndOptOut() {
   }
 }
 
+function gitLikeProject(prefix) {
+  const root = tempProject(prefix);
+  fs.mkdirSync(path.join(root, '.git', 'info'), { recursive: true });
+  return root;
+}
+
+function testPortableInstallContractAndTwoClones() {
+  const first = gitLikeProject('citadel-portable-a-');
+  const second = gitLikeProject('citadel-portable-b-');
+  try {
+    const firstExclude = ensureMachineLocalExcludes(first);
+    assert(firstExclude.written, 'first clone should receive the local machine-output block');
+    assert(ensureMachineLocalExcludes(first).skipped, 'local exclusion installation must be idempotent');
+    assert(fs.readFileSync(path.join(first, '.git', 'info', 'exclude'), 'utf8').includes('.opencode/'));
+
+    installClaudeHooks({ projectRoot: first, citadelRoot: CITADEL_ROOT });
+    const firstSettings = fs.readFileSync(path.join(first, '.claude', 'settings.json'), 'utf8');
+    installClaudeHooks({ projectRoot: second, citadelRoot: CITADEL_ROOT });
+    assert.equal(fs.readFileSync(path.join(first, '.claude', 'settings.json'), 'utf8'), firstSettings,
+      'installing a second clone must not rewrite the first clone');
+
+    const hooksTemplate = JSON.parse(fs.readFileSync(path.join(CITADEL_ROOT, 'hooks', 'hooks-template.json'), 'utf8'));
+    installCodexHooks({
+      projectRoot: first,
+      outputPath: path.join(first, '.codex', 'hooks.json'),
+      hooksTemplate,
+      adapterScriptPath: path.join(CITADEL_ROOT, 'hooks_src', 'codex-adapter.js'),
+    });
+    const inventory = inspectInstallInventory(first, { runtime: 'codex' });
+    assert(inventory.registrations.some((item) => item.runtime === 'claude-code'));
+    assert(inventory.registrations.some((item) => item.runtime === 'codex'));
+    assert.equal(inventory.diagnostics.length, 0, 'Claude and Codex registrations should coexist');
+
+    const duplicateRoot = gitLikeProject('citadel-duplicate-');
+    try {
+      fs.mkdirSync(path.join(duplicateRoot, '.claude'), { recursive: true });
+      fs.writeFileSync(path.join(duplicateRoot, '.claude', 'settings.json'), JSON.stringify({
+        hooks: {
+          PreToolUse: [{ hooks: [
+            { type: 'command', command: 'node "C:\\\\one\\hooks_src\\a.js"' },
+            { type: 'command', command: 'node "D:\\\\two\\hooks_src\\b.js"' },
+          ] }],
+        },
+      }));
+      const duplicate = inspectInstallInventory(duplicateRoot, { runtime: 'claude-code' });
+      assert(duplicate.diagnostics.some((item) => item.code === 'DUPLICATE_CITADEL_REGISTRATION'));
+      assert(duplicate.diagnostics[0].message.includes('Re-run the installer'));
+    } finally {
+      fs.rmSync(duplicateRoot, { recursive: true, force: true });
+    }
+
+    const guided = withGuidanceOwner('# Demo\n');
+    assert.equal(guidanceOwner(guided), 'citadel:project-guidance');
+    assert.throws(
+      () => assertPortableSharedOutputs([{ path: 'opencode.json', ownership: 'shared', content: { root: 'C:\\\\workstation' } }]),
+      (error) => error.code === 'CITADEL_SHARED_PATH_NOT_PORTABLE',
+    );
+
+    const firstClassification = classifyOutputs([{
+      path: 'opencode.json',
+      ownership: 'shared',
+      content: { skills: { paths: ['C:\\\\old-citadel\\skills'] } },
+    }])[0];
+    const reclassified = classifyOutputs([firstClassification])[0];
+    assert.equal(reclassified.portable, false, 'reclassifying output evidence must preserve portability failures');
+    assert.deepEqual(reclassified.absoluteReferences, firstClassification.absoluteReferences);
+  } finally {
+    fs.rmSync(first, { recursive: true, force: true });
+    fs.rmSync(second, { recursive: true, force: true });
+  }
+}
+
+function testLinkedWorktreeExcludesUseCommonGitDirectory() {
+  const repository = tempProject('citadel-common-git-');
+  const linked = path.join(repository, 'linked');
+  try {
+    execFileSync('git', ['init', '--quiet'], { cwd: repository, stdio: 'ignore' });
+    execFileSync('git', ['config', 'user.email', 'citadel-tests@example.test'], { cwd: repository, stdio: 'ignore' });
+    execFileSync('git', ['config', 'user.name', 'Citadel Tests'], { cwd: repository, stdio: 'ignore' });
+    execFileSync('git', ['commit', '--allow-empty', '-m', 'test'], { cwd: repository, stdio: 'ignore' });
+    execFileSync('git', ['worktree', 'add', '--detach', '--quiet', linked], { cwd: repository, stdio: 'ignore' });
+
+    const plan = ensureMachineLocalExcludes(linked);
+    const commonDir = path.resolve(repository, execFileSync(
+      'git', ['rev-parse', '--git-common-dir'], { cwd: linked, encoding: 'utf8' },
+    ).trim());
+    assert.equal(path.resolve(plan.path), path.join(commonDir, 'info', 'exclude'));
+    execFileSync('git', ['check-ignore', '--no-index', '-q', '.opencode/portable-test'], {
+      cwd: linked,
+      stdio: 'ignore',
+    });
+  } finally {
+    if (fs.existsSync(linked)) {
+      try { execFileSync('git', ['worktree', 'remove', '--force', linked], { cwd: repository, stdio: 'ignore' }); } catch { /* cleanup below */ }
+    }
+    fs.rmSync(repository, { recursive: true, force: true });
+  }
+}
+
 testClaudeDryRun();
 testUnifiedDispatcherDryRun();
 testClaudeMarketplaceManifest();
@@ -191,5 +300,7 @@ testCodexMarketplaceTargetsPluginRoot();
 testUnifiedDispatcherRecordsSuccessfulInstall();
 testUnifiedDispatcherRecordsFailureWithoutChangingExit();
 testUnifiedDispatcherRespectsNonInstallModesAndOptOut();
+testPortableInstallContractAndTwoClones();
+testLinkedWorktreeExcludesUseCommonGitDirectory();
 
 console.log('installer tests passed');
