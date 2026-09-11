@@ -303,9 +303,11 @@ translates them into its native `permission` map:
 | `Agent`, `Task` | `task` |
 | `Skill` | `skill` |
 
-**An allow-list is exhaustive**: anything it does not grant is denied, not just
-the dangerous-looking things. An agent restricted to `Read`/`Grep`/`Glob` keeps
-exactly those and loses the rest.
+The translated allow-list is exhaustive for the built-in tool names Citadel
+maps above. An agent restricted to `Read`/`Grep`/`Glob` keeps those mapped
+built-ins and loses the other mapped built-ins. Tools from unrelated,
+user-configured MCP servers remain governed by their own configuration and are
+outside this projection boundary.
 
 `task` matters more than it looks: a subagent runs with its own permissions, not
 its caller's, so an agent that can delegate can have someone else do whatever it
@@ -318,8 +320,9 @@ checks the intent, not which agent sent it. opencode gates an MCP tool by its
 `fleet` grant every tool Citadel can name, project with no permission block, and
 keep the server.
 
-Not gated: `todowrite`, which Citadel's frontmatter cannot name, and opencode's
-read-only MCP resource tools (`list_mcp_resources`, `read_mcp_resource`,
+Not gated: `todowrite`, which Citadel's frontmatter cannot name; tools from
+unrelated, user-configured MCP servers; and opencode's read-only MCP resource
+tools (`list_mcp_resources`, `read_mcp_resource`,
 `list_mcp_resource_templates`), which no permission key withheld on 1.18.30.
 citadel-state's one resource is the same summary `citadel_status` returns.
 
@@ -335,9 +338,11 @@ permission:
   "citadel-state_*": deny
 ```
 
-opencode withholds those tools from the agent entirely rather than refusing the
-call, so a read-only reviewer reports that it has no write tool at all. An agent
-with no restrictions gets no permission block and keeps opencode's defaults.
+opencode withholds those mapped built-ins and Citadel-state tools from the agent
+rather than refusing the call. A read-only reviewer therefore has no mapped
+built-in write tool, while tools from unrelated MCP servers remain subject to
+their own configuration. An agent with no restrictions gets no permission block
+and keeps opencode's defaults.
 
 ## Performance
 
