@@ -8,6 +8,7 @@ const { CIT_EVENT_ORDER } = require('./events');
 const RUNTIME_IDS = Object.freeze([
   'claude-code',
   'codex',
+  'opencode',
   'openai',
   'unknown',
 ]);
@@ -32,6 +33,12 @@ const RUNTIME_ADAPTER_MATRIX = Object.freeze({
     guarantees: ['project guidance', 'skills', 'agents', 'workspace shell', 'MCP', 'app artifacts'],
     missing: ['full Citadel hook parity', 'uniform CLI worktree handoff'],
     tradeoffs: 'Use Codex-native execution surfaces where available; Citadel keeps evidence, campaign memory, and adapter warnings explicit.',
+  },
+  opencode: {
+    level: ADAPTER_LEVELS.HOOK_ENABLED,
+    guarantees: ['project guidance', 'skills', 'agents', 'pre-tool gate', 'post-tool observers', 'workspace shell', 'MCP'],
+    missing: ['stop-event blocking', 'native permission gate', 'tool-batch and failure events'],
+    tradeoffs: 'Lifecycle interception runs through an in-process opencode plugin that spawns Citadel hooks, so pre-tool gating is strong but Stop cannot block and permission decisions stay observational.',
   },
   openai: {
     level: ADAPTER_LEVELS.REMOTE_CLOUD_TASK,

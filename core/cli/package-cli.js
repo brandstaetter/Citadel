@@ -94,6 +94,7 @@ function normalizeRuntime(input) {
   const runtime = String(input || '').trim().toLowerCase();
   if (runtime === 'claude' || runtime === 'claude-code') return 'claude';
   if (runtime === 'codex') return 'codex';
+  if (runtime === 'opencode') return 'opencode';
   return null;
 }
 
@@ -113,13 +114,14 @@ function markerRuntimes(projectRoot, fsImpl = fs) {
   const found = [];
   if (fsImpl.existsSync(path.join(projectRoot, '.claude'))) found.push('claude');
   if (fsImpl.existsSync(path.join(projectRoot, '.codex'))) found.push('codex');
+  if (fsImpl.existsSync(path.join(projectRoot, '.opencode'))) found.push('opencode');
   return found;
 }
 
 function runtimeError(code, candidates = []) {
   const messages = {
-    [CODE.RUNTIME_NOT_FOUND]: 'Could not detect Claude Code or Codex. Install a runtime or pass --runtime.',
-    [CODE.RUNTIME_AMBIGUOUS]: 'Both Claude Code and Codex are available. Pass --runtime to choose one.',
+    [CODE.RUNTIME_NOT_FOUND]: 'Could not detect Claude Code, Codex, or opencode. Install a runtime or pass --runtime.',
+    [CODE.RUNTIME_AMBIGUOUS]: 'More than one runtime is available. Pass --runtime to choose one.',
   };
   const error = new Error(messages[code]);
   error.code = code;
@@ -147,6 +149,7 @@ function detectRuntime(args, options = {}) {
   const available = [
     probe('claude') ? 'claude' : null,
     probe('codex') ? 'codex' : null,
+    probe('opencode') ? 'opencode' : null,
   ].filter(Boolean);
   if (available.length === 1) return { runtime: available[0], source: 'command' };
   if (available.length > 1) throw runtimeError(CODE.RUNTIME_AMBIGUOUS, available);
@@ -241,7 +244,9 @@ function doctorReport(args, context = {}) {
     const probe = context.probe || ((command) => commandAvailable(command, context.spawn || spawnSync));
     checks.push({
       name: 'runtime-command',
-      pass: probe(detection.runtime === 'claude' ? 'claude' : 'codex'),
+      // The normalized runtime id is also the CLI binary name for every runtime
+      // the installer supports, so probe it directly rather than mapping.
+      pass: probe(detection.runtime),
       runtime: detection.runtime,
     });
   }

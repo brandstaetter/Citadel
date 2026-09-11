@@ -260,6 +260,48 @@ test('CLI supports plan-like record, status, opt-out and opt-in', () => {
   assert.throws(() => cli.run(['status', '--invented', 'yes']), /unknown flag/);
 });
 
+// The installer decides what goes in the runtime field, so the two lists have to
+// agree. When they did not, every opencode install threw validation, install.js's
+// recordSafely turned that into a silent recorded:false, and opencode vanished
+// from activation metrics without a single error being surfaced.
+test('every runtime the installer can emit is an accepted runtime', () => {
+  const installer = require('./install.js');
+  const emitted = new Set(
+    ['claude', 'claude-code', 'codex', 'opencode', 'anything-else']
+      .map((value) => installer.normalizeRuntime(value)),
+  );
+  assert(emitted.has('opencode'), 'the installer must still be able to emit opencode');
+  for (const runtime of emitted) {
+    assert(
+      activation.RUNTIMES.includes(runtime),
+      `installer emits runtime "${runtime}" but activation.RUNTIMES rejects it`,
+    );
+  }
+});
+
+test('an accepted runtime records and an invented one is refused', () => {
+  const root = tempRoot();
+  try {
+    for (const runtime of activation.RUNTIMES) {
+      const result = activation.record(
+        { stage: 'install_started', status: 'started', runtime, acquisition_source: 'unknown' },
+        { root, env: {}, now: new Date(), version: '1.0.0' },
+      );
+      assert.equal(result.recorded, true, `${runtime} must record`);
+    }
+    assert.throws(
+      () => activation.record(
+        { stage: 'install_started', status: 'started', runtime: 'invented', acquisition_source: 'unknown' },
+        { root, env: {}, now: new Date(), version: '1.0.0' },
+      ),
+      /runtime must be one of/,
+      'an unknown runtime must still be refused',
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('production implementation imports and calls no network modules', () => {
   for (const file of ['../core/telemetry/activation.js', './activation-telemetry.js']) {
     const source = fs.readFileSync(path.resolve(__dirname, file), 'utf8');

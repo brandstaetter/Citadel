@@ -46,6 +46,8 @@ Always run tests after modifying hooks or skills. Five levels:
 
 **CI:** `node scripts/test-all.js` exits non-zero on any failure. Use `--strict` to treat WARNs as failures.
 
+**Shallow clones:** `Freeze dependency closure` reads committed freezes with `git show <commit>:<path>` and fails on a shallow clone for reasons unrelated to your change. Run `git fetch --unshallow` first; see CONTRIBUTING.md for detail.
+
 ## Campaign Design Principles
 
 - Keep individual phases under 35 minutes of execution time. Failure rate increases 4x beyond this boundary (Morph, 2026).

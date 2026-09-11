@@ -5,6 +5,7 @@
 const path = require('path');
 const claudeRuntime = require(path.join(__dirname, '..', '..', 'runtimes', 'claude-code', 'runtime'));
 const codexRuntime = require(path.join(__dirname, '..', '..', 'runtimes', 'codex', 'runtime'));
+const opencodeRuntime = require(path.join(__dirname, '..', '..', 'runtimes', 'opencode', 'runtime'));
 
 const UNKNOWN_RUNTIME = Object.freeze({
   id: 'unknown',
@@ -16,6 +17,7 @@ const UNKNOWN_RUNTIME = Object.freeze({
 const RUNTIME_REGISTRY = Object.freeze({
   'claude-code': claudeRuntime,
   codex: codexRuntime,
+  opencode: opencodeRuntime,
   unknown: UNKNOWN_RUNTIME,
 });
 

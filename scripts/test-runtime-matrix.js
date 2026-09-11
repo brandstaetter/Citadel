@@ -18,6 +18,8 @@ for (const runtimeId of runtime.RUNTIME_IDS) {
 }
 
 assert.equal(runtime.getRuntimeAdapterMatrix('codex').level, 'managed-subagent');
+assert.equal(runtime.getRuntimeAdapterMatrix('opencode').level, 'hook-enabled');
+assert(runtime.getRuntimeAdapterMatrix('opencode').missing.includes('stop-event blocking'));
 assert(runtime.getRuntimeAdapterMatrix('openai').missing.includes('local hook lifecycle'));
 assert.equal(runtime.getRuntimeAdapterMatrix('not-real').level, 'native-files');
 

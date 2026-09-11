@@ -20,6 +20,9 @@ function parseAgentFrontmatter(content) {
 
   for (const line of lines) {
     if (!line.trim()) continue;
+    // A YAML comment is not a key. Without this, `# model: a STRONG model` became
+    // a frontmatter entry named "# model".
+    if (line.trimStart().startsWith('#')) continue;
 
     const listMatch = line.match(/^\s*-\s+(.*)$/);
     if (listMatch && currentListKey) {
@@ -56,7 +59,11 @@ function parseAgentFrontmatter(content) {
     }
   }
 
-  const descMatch = normalized.match(/description:\s*>-?\n([\s\S]*?)(?=\n[a-zA-Z][\w-]*:|\n---)/);
+  // A folded scalar ends at the next top-level key, a column-0 comment, or the
+  // closing fence. Without the `\n#` alternative the scalar swallowed trailing
+  // YAML comments into the description. Only column-0 `#` terminates, so an
+  // indented `#` inside the description itself is still part of the text.
+  const descMatch = normalized.match(/description:\s*>-?\n([\s\S]*?)(?=\n#|\n[a-zA-Z][\w-]*:|\n---)/);
   if (descMatch) {
     fm.description = descMatch[1].replace(/\n\s*/g, ' ').trim();
   }

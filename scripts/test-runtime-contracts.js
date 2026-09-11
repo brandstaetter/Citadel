@@ -21,10 +21,12 @@ function main() {
     fail('runtime contract must export a non-empty RUNTIME_IDS array');
   }
 
-  const skeleton = runtimeModule.createRuntimeContractSkeleton('codex');
-  const errors = runtimeModule.validateRuntimeContract(skeleton);
-  if (errors.length > 0) {
-    fail(`runtime contract skeleton is invalid: ${errors.join('; ')}`);
+  for (const runtimeId of runtimeModule.RUNTIME_IDS) {
+    const skeleton = runtimeModule.createRuntimeContractSkeleton(runtimeId);
+    const errors = runtimeModule.validateRuntimeContract(skeleton);
+    if (errors.length > 0) {
+      fail(`runtime contract skeleton for ${runtimeId} is invalid: ${errors.join('; ')}`);
+    }
   }
 
   if (!contracts.events.isKnownCitadelEvent('session_start')) {

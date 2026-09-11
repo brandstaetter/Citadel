@@ -26,7 +26,7 @@ Include what you expected, what actually happened, the full error text (not a sc
 4. Open a PR against `main` and note which platform you tested on.
 
 > [!IMPORTANT]
-> Branch protection is enabled: all changes go through a PR, and CI runs the full suite on Ubuntu and Windows across Node 18 and 20. A PR that passes locally but only on one platform will usually fail the matrix; the cross-platform rules below are how you avoid that.
+> Branch protection is enabled: all changes go through a PR, and CI runs the full suite on Ubuntu, macOS, and Windows across Node 22 and 24. A PR that passes locally but only on one platform will usually fail the matrix; the cross-platform rules below are how you avoid that.
 
 ### Verification commands
 
@@ -37,6 +37,33 @@ Include what you expected, what actually happened, the full error text (not a sc
 | `node scripts/verify-hooks.js` | Hook install plus runtime with synthetic payloads | After hook changes |
 | `node scripts/skill-lint.js {name}` | One skill's structure | After skill changes |
 | `node scripts/skill-bench.js --skill {name}` | Benchmark scenario validity | After adding benchmarks |
+
+### Running the suite locally
+
+```sh
+npm test                          # same as: node scripts/test-all.js
+node scripts/test-all.js --strict # what CI runs: WARNs become failures
+```
+
+Run a single check directly when you only touched one area — each entry in
+`scripts/` is standalone, e.g. `node scripts/test-hook-events.js`. `test-all.js`
+prints a PASS/FAIL line per check, so run the named script for whatever failed
+rather than re-running the whole suite to iterate.
+
+**Clone with full history.** `Freeze dependency closure`
+(`scripts/application-freeze-closure.js`) resolves committed benchmark freezes
+with `git show <commit>:<path>`, so on a shallow clone it fails with
+`could not read <sha>:benchmarks/sentient-readiness/freeze.json` even though
+nothing is wrong with your change. Plain `git clone` is fine; if you already
+have a shallow one (CI containers and cloud dev environments often default to
+`--depth 1`), run:
+
+```sh
+git fetch --unshallow
+```
+
+`git rev-parse --is-shallow-repository` tells you which you have. The CI job
+that runs the suite checks out with `fetch-depth: 0` for this reason.
 
 ### Cross-platform rules
 

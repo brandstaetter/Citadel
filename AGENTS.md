@@ -46,6 +46,8 @@ Always run tests after modifying hooks or skills. Five levels:
 
 **CI:** `node scripts/test-all.js` exits non-zero on any failure. Use `--strict` to treat WARNs as failures.
 
+**Shallow clones:** `Freeze dependency closure` reads committed freezes with `git show <commit>:<path>` and fails on a shallow clone for reasons unrelated to your change. Run `git fetch --unshallow` first; see CONTRIBUTING.md for detail.
+
 ## Review Guidelines
 
 Codex GitHub review should focus on actionable P0/P1 issues:
