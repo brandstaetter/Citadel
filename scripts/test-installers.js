@@ -346,8 +346,54 @@ function testInitProjectSurfacesAmbiguousRuntimeAndStillProtectsRepo() {
   }
 }
 
+function testInitProjectDoesNotCreateClaudeMarkerUnderAmbiguity() {
+  // Codex review on #294: a disputed runtime used to fall through to the
+  // .codex/.claude default in step 5's agent-context copy, so .codex/ +
+  // .opencode/ (no .claude/ at all) got a brand-new .claude/agent-context/
+  // written into it -- creating a THIRD runtime marker and turning a
+  // temporary ambiguity into a permanent one.
+  const repository = tempProject('citadel-ambiguous-no-claude-marker-');
+  try {
+    execFileSync('git', ['init', '--quiet'], { cwd: repository, stdio: 'ignore' });
+    fs.mkdirSync(path.join(repository, '.codex'), { recursive: true });
+    fs.mkdirSync(path.join(repository, '.opencode'), { recursive: true });
+
+    const { CITADEL_RUNTIME, ...envWithoutRuntime } = process.env;
+    const result = spawnSync(
+      process.execPath,
+      [path.join(CITADEL_ROOT, 'hooks_src', 'init-project.js')],
+      {
+        cwd: repository,
+        encoding: 'utf8',
+        env: { ...envWithoutRuntime, CLAUDE_PROJECT_DIR: repository },
+        timeout: 30000,
+      },
+    );
+
+    assert.equal(result.status, 0, 'ambiguous runtime must never block session start');
+    assert.equal(
+      fs.existsSync(path.join(repository, '.claude')),
+      false,
+      'a disputed runtime must never mint a new .claude/ marker',
+    );
+    assert.equal(
+      fs.existsSync(path.join(repository, '.codex', 'agent-context')),
+      false,
+      'agent-context must wait for an explicit runtime, not guess codex either',
+    );
+    assert.equal(
+      fs.existsSync(path.join(repository, '.opencode', 'agent-context')),
+      false,
+      'agent-context must wait for an explicit runtime, not guess opencode either',
+    );
+  } finally {
+    fs.rmSync(repository, { recursive: true, force: true });
+  }
+}
+
 testPortableInstallContractAndTwoClones();
 testLinkedWorktreeExcludesUseCommonGitDirectory();
 testInitProjectSurfacesAmbiguousRuntimeAndStillProtectsRepo();
+testInitProjectDoesNotCreateClaudeMarkerUnderAmbiguity();
 
 console.log('installer tests passed');

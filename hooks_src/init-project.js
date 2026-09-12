@@ -282,12 +282,19 @@ function main() {
 
     // 5. Copy the runtime-neutral delegated-agent context into the active
     // runtime's project namespace. Never create another runtime's marker: it
-    // makes later runtime detection ambiguous.
-    const pluginAgentContext = path.join(PLUGIN_ROOT, 'templates', 'agent-context');
-    const runtimeDirectory = authority.runtime === 'codex' ? '.codex' : '.claude';
-    const agentContext = path.join(PROJECT_ROOT, runtimeDirectory, 'agent-context');
-    if (!fs.existsSync(agentContext) && fs.existsSync(pluginAgentContext)) {
-      copyDirRecursive(pluginAgentContext, agentContext);
+    // makes later runtime detection ambiguous. A disputed runtime (multiple
+    // markers, or an invalid CITADEL_RUNTIME) must not fall through to the
+    // .claude default below -- that would create a .claude/ marker in a repo
+    // that may have neither .claude/ nor .codex/ (e.g. .codex/ + .opencode/),
+    // turning a temporary ambiguity into a permanent one. A genuinely fresh
+    // project (no markers at all) is unaffected and keeps the existing default.
+    if (!authority.runtimeDetectionError) {
+      const pluginAgentContext = path.join(PLUGIN_ROOT, 'templates', 'agent-context');
+      const runtimeDirectory = authority.runtime === 'codex' ? '.codex' : '.claude';
+      const agentContext = path.join(PROJECT_ROOT, runtimeDirectory, 'agent-context');
+      if (!fs.existsSync(agentContext) && fs.existsSync(pluginAgentContext)) {
+        copyDirRecursive(pluginAgentContext, agentContext);
+      }
     }
 
     // 6. Write .citadel-root marker (plugin path for reference)
