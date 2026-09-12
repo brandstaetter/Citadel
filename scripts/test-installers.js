@@ -3,7 +3,7 @@
 'use strict';
 
 const assert = require('assert');
-const { execFileSync } = require('child_process');
+const { execFileSync, spawnSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
@@ -300,7 +300,54 @@ testCodexMarketplaceTargetsPluginRoot();
 testUnifiedDispatcherRecordsSuccessfulInstall();
 testUnifiedDispatcherRecordsFailureWithoutChangingExit();
 testUnifiedDispatcherRespectsNonInstallModesAndOptOut();
+function testInitProjectSurfacesAmbiguousRuntimeAndStillProtectsRepo() {
+  // Regression for #293: two runtime marker directories with no CITADEL_RUNTIME
+  // used to make the session-start hook exit 0 in total silence, before it
+  // ever reached ensureMachineLocalExcludes(). That left a mixed
+  // Claude/Codex/OpenCode checkout with no .git/info/exclude protection at
+  // all -- the one case the machine-local/shared contract exists to cover.
+  const repository = tempProject('citadel-ambiguous-runtime-');
+  try {
+    execFileSync('git', ['init', '--quiet'], { cwd: repository, stdio: 'ignore' });
+    fs.mkdirSync(path.join(repository, '.claude'), { recursive: true });
+    fs.mkdirSync(path.join(repository, '.codex'), { recursive: true });
+
+    const { CITADEL_RUNTIME, ...envWithoutRuntime } = process.env;
+    const result = spawnSync(
+      process.execPath,
+      [path.join(CITADEL_ROOT, 'hooks_src', 'init-project.js')],
+      {
+        cwd: repository,
+        encoding: 'utf8',
+        env: { ...envWithoutRuntime, CLAUDE_PROJECT_DIR: repository },
+        timeout: 30000,
+      },
+    );
+
+    assert.equal(result.status, 0, 'ambiguous runtime must never block session start');
+    assert.match(
+      result.stderr,
+      /Multiple Citadel runtimes are present/,
+      'the ambiguity must be surfaced, not swallowed silently',
+    );
+    assert.match(
+      result.stderr,
+      /repair: Set CITADEL_RUNTIME/,
+      'a concrete repair command must accompany the diagnostic',
+    );
+
+    const excludePath = path.join(repository, '.git', 'info', 'exclude');
+    assert(fs.existsSync(excludePath), 'machine-local exclude file must be written even under ambiguity');
+    const excludeContents = fs.readFileSync(excludePath, 'utf8');
+    assert.match(excludeContents, /CITADEL MACHINE-LOCAL/, 'exclude file must carry the Citadel block');
+    assert(fs.existsSync(path.join(repository, '.planning')), 'planning scaffold must still be created in degraded mode');
+  } finally {
+    fs.rmSync(repository, { recursive: true, force: true });
+  }
+}
+
 testPortableInstallContractAndTwoClones();
 testLinkedWorktreeExcludesUseCommonGitDirectory();
+testInitProjectSurfacesAmbiguousRuntimeAndStillProtectsRepo();
 
 console.log('installer tests passed');
