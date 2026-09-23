@@ -3,7 +3,7 @@
 /**
  * run-with-timeout.js -- Cross-platform command timeout wrapper
  *
- * Usage: node scripts/run-with-timeout.js <seconds> <command> [args...]
+ * Usage: node .citadel/scripts/run-with-timeout.js <seconds> <command> [args...]
  *
  * Runs the command as a child process with a timeout. If the command
  * exceeds the time limit, it kills the process tree and exits with
@@ -29,8 +29,8 @@ const PROJECT_ROOT = process.env.CLAUDE_PROJECT_DIR || process.cwd();
 const args = process.argv.slice(2);
 if (args.length < 2) {
   process.stderr.write(
-    'Usage: node scripts/run-with-timeout.js <seconds> <command> [args...]\n' +
-    'Example: node scripts/run-with-timeout.js 300 npm test\n'
+    'Usage: node .citadel/scripts/run-with-timeout.js <seconds> <command> [args...]\n' +
+    'Example: node .citadel/scripts/run-with-timeout.js 300 npm test\n'
   );
   process.exit(1);
 }
