@@ -1,4 +1,21 @@
+---
+version: 1
+id: "6f2b9c4e-1d7a-4e58-9b3f-2a8c5d0e7f41"
+status: completed
+started: "2026-07-30T00:00:00.000Z"
+completed_at: "2026-07-30T21:46:34.000Z"
+direction: "Implement the governed Citadel lifecycle: fail-honest governance, versioned profiles and bundles, receipt-owned adoption and exit, Governance Port alpha, Real User Proof v2, and real-use proof preparation."
+phase_count: 8
+current_phase: 7
+branch: null
+worktree_status: null
+---
+
 # Campaign: Governed Citadel Lifecycle
+
+Status: completed
+Started: 2026-07-30
+Direction: Implement the governed Citadel lifecycle report and architecture without overwriting unrelated dirty work.
 
 ## Direction
 
@@ -9,13 +26,9 @@ bundles, receipt-owned adoption and exit, an alpha external Governance Port,
 Real User Proof v2, integrated truthful product surfaces, and executable
 real-use proof preparation.
 
-## Status
+## Phases
 
-complete
-
-## Phase End Conditions
-
-| Phase | Title | Status | Validator retries remaining | Machine-verifiable end conditions |
+| # | Phase | Status | Validator retries remaining | Done When |
 |---|---|---|---:|---|
 | 0 | Baseline and ownership | complete | 3 | Branch/status/shared diffs recorded; 180-second aggregate baseline recorded as inconclusive |
 | 1 | Contract kernels | complete | 3 | `node scripts/test-governance-contracts.js` and `node scripts/test-config-policy.js` pass |
@@ -130,3 +143,8 @@ complete
 - Fail-honest evidence overrides timeout-as-pass behavior across orchestration
 - Phase 7 passed 5/5 scenarios, independent validation, full aggregate, and binding arbitration
 ---
+
+## Completion Record
+
+- Completed At: 2026-10-08T21:10:49.580Z
+- Outcome: archived-completion

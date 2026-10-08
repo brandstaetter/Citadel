@@ -712,6 +712,10 @@ function readHealth(projectRoot) {
     effectiveConfigPersisted: effective.persisted !== false,
     profile: effective.receipt?.profile?.id || null,
     activeBundles: effective.receipt?.bundles?.effective || [],
+    degradedBundles: (effective.receipt?.bundles?.degraded || []).map((entry) => ({
+      id: entry.id,
+      capabilities: entry.capabilities || [],
+    })),
   };
 }
 
@@ -1447,7 +1451,13 @@ function renderDashboard(snapshot) {
   lines.push(`  Circuit breaker trips this session: ${snapshot.health.circuitBreakerTripsThisSession}`);
   lines.push(`  Audit entries today:                ${snapshot.health.auditEntriesToday}`);
   lines.push(`  Hooks installed:                    ${snapshot.health.hooksInstalled}`);
-  lines.push(`  Effective config:                   ${snapshot.health.activationStatus} (${snapshot.health.activationReasonCode})`);
+  const degradedBundles = snapshot.health.degradedBundles || [];
+  const activationDetail = degradedBundles.length
+    ? `adapter-backed: ${degradedBundles.map((entry) => entry.capabilities.length
+      ? `${entry.id} (partial ${entry.capabilities.join(', ')})`
+      : entry.id).join('; ')}`
+    : snapshot.health.activationReasonCode;
+  lines.push(`  Effective config:                   ${snapshot.health.activationStatus} (${activationDetail})`);
   lines.push(`  Execution profile:                  ${snapshot.health.profile || 'unresolved'}`);
   lines.push(`  Active product bundles:             ${snapshot.health.activeBundles.join(', ') || 'none'}`);
   lines.push(`  Trust level:                        ${snapshot.health.trustLevel} (${snapshot.health.trustSessions} sessions, ${snapshot.health.trustCampaigns} campaigns)`);
