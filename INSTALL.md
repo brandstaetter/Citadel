@@ -1,4 +1,5 @@
 # Install Citadel
+<!-- citadel:ignore cross-reference -->
 
 The canonical stable installation guide. Citadel installs through the native
 plugin marketplace in Claude Code or OpenAI Codex. GitHub Releases remain the
@@ -161,8 +162,9 @@ Write the plan outside the target repository. Creating a plan inside the target
 changes the target after its preflight snapshot and invalidates apply with
 `TARGET_DRIFT`.
 
-Use `--project-runtime claude` for Claude Code or
-`--project-runtime both` when both projections are intentional. Review the
+Use `--project-runtime claude`, `--project-runtime copilot`, or
+`--project-runtime both` when Claude and Codex projections are intentional.
+Use `--project-runtime all` to include Copilot. Review the
 owned/shared footprint and every external registration whose removal evidence
 is `unknown`. Then apply the exact saved plan:
 
@@ -186,7 +188,8 @@ restore, and leave use `scripts/adopt.js`.
 `scripts/install.js` is a dispatcher: `--runtime claude` runs
 `scripts/claude-install.js` and `--runtime codex` runs
 `scripts/codex-install.js`; `--runtime opencode` runs
-`scripts/opencode-install.js`. The commands below use the dispatcher; the
+`scripts/opencode-install.js`; `--runtime copilot` runs
+`scripts/copilot-install.js`. The commands below use the dispatcher; the
 runtime-specific scripts accept the same flags if you prefer to call them
 directly.
 
@@ -197,6 +200,32 @@ checkout pointers are machine-local and are protected in `.git/info/exclude`.
 Use `--dry-run --json` to review `outputs`, `inventory`, `diagnostics`, and
 `machineLocalExcludes`; a `DUPLICATE_CITADEL_REGISTRATION` diagnostic names the
 roots that need reconciliation.
+
+### GitHub Copilot native plugin
+
+From your target project root:
+
+```bash
+node "$CITADEL_ROOT/scripts/install.js" --runtime copilot --install
+node "$CITADEL_ROOT/scripts/copilot-readiness-check.js" --project-root .
+```
+
+The default integration registers the local `citadel-local` marketplace and
+installs the native Agent Plugin. Its generated hooks use `${PLUGIN_ROOT}`, so
+the plugin remains relocatable and does not add project-local hook entries.
+To migrate an older fallback installation without removing unrelated user
+hooks, use `--install --migrate-fallback`.
+
+Use `--fallback` only when native plugins are unavailable. That mode merges
+Citadel command hooks into `.github/copilot/settings.local.json`, preserves
+unrelated user hooks, and sets `CITADEL_RUNTIME=copilot` on every generated
+entry. The fallback file is machine-local because it contains the absolute
+path to this Citadel checkout. The installer prevents native and fallback
+Citadel hooks from being active together. Use `--uninstall` to remove the
+native plugin while preserving project state and user-authored hooks.
+
+Copilot hook crashes fail closed for the two security gates, but Copilot hook
+timeouts fail open and are not a security boundary.
 
 ### Claude Code compatibility installer
 

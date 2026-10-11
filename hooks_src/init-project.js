@@ -281,7 +281,11 @@ function main() {
     // template; a redirected (symlinked) directory is not ours to write through.
     if (!authority.runtimeDetectionError) {
       const pluginAgentContext = path.join(PLUGIN_ROOT, 'templates', 'agent-context');
-      const runtimeDirectory = authority.runtime === 'codex' ? '.codex' : '.claude';
+      const runtimeDirectory = authority.runtime === 'codex'
+        ? '.codex'
+        : authority.runtime === 'copilot'
+          ? '.citadel'
+          : '.claude';
       const agentContext = path.join(PROJECT_ROOT, runtimeDirectory, 'agent-context');
       const redirected = fs.existsSync(agentContext) && fs.lstatSync(agentContext).isSymbolicLink();
       if (!redirected) syncAgentContext(pluginAgentContext, agentContext);

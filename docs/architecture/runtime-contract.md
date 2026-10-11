@@ -1,6 +1,7 @@
 # Runtime Contract
+<!-- citadel:ignore cross-reference -->
 
-> last-updated: 2026-09-11
+> last-updated: 2026-09-28
 
 This document defines the intended runtime-agnostic architecture boundary for
 Citadel.
@@ -10,7 +11,7 @@ Citadel.
 Citadel should be the system of record for orchestration, campaigns, telemetry,
 skills, policy, and coordination.
 
-Claude Code and Codex should be treated as runtimes that project Citadel
+Claude Code, GitHub Copilot, Codex, and OpenCode should be treated as runtimes that project Citadel
 concepts into runtime-native guidance files, hooks, agents, and surfaces.
 
 ## Canonical Layers
@@ -34,6 +35,8 @@ Generated runtime projections:
 - `CLAUDE.md`
 - `AGENTS.md`
 - `.claude/settings.json`
+- `plugin.json` and `com.github.copilot/hooks/hooks.json`
+- `.github/copilot/settings.local.json` (explicit CLI fallback only)
 - `.codex/hooks.json`
 - `.codex/config.toml`
 - `.codex/agents/*.toml`
@@ -63,7 +66,9 @@ The initial reference implementation lives in:
 Runtime selection is deterministic. `CITADEL_RUNTIME` or an explicit
 `--runtime` value takes precedence, followed by a process-tree marker and
 then exactly one project marker directory: `.claude`, `.codex`, or
-`.opencode`. An invalid explicit value or more than one detected runtime
+`.opencode`. Copilot is detected only by explicit selection or a `copilot`
+process ancestor; `.github` is intentionally not a runtime marker. An invalid
+explicit value or more than one detected runtime
 fails closed with a reconcile command. Directory timestamps are never used to
 guess the active runtime.
 

@@ -77,6 +77,7 @@ const BUNDLE_CATALOG = deepFreeze({
     },
     runtimeRequirements: ['workspace', 'agents', 'worktrees', 'approvals'],
     degradationAdapters: {
+      copilot: 'citadel-managed-worktrees-and-approvals',
       codex: 'citadel-managed-worktrees-and-approvals',
       'claude-code': 'citadel-managed-approval-policy',
     },
@@ -101,6 +102,7 @@ const BUNDLE_CATALOG = deepFreeze({
     },
     runtimeRequirements: ['workspace', 'history', 'approvals'],
     degradationAdapters: {
+      copilot: 'citadel-operation-state-and-approval-adapter',
       codex: 'citadel-operation-state-and-approval-adapter',
       'claude-code': 'citadel-operation-state-and-approval-adapter',
     },
@@ -122,6 +124,7 @@ const BUNDLE_CATALOG = deepFreeze({
     },
     runtimeRequirements: ['workspace', 'approvals', 'surfaces'],
     degradationAdapters: {
+      copilot: 'citadel-delivery-approval-adapter',
       codex: 'citadel-delivery-handoff-adapter',
       'claude-code': 'citadel-delivery-approval-adapter',
     },

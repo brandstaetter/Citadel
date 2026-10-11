@@ -31,6 +31,7 @@ const SENTINEL_RUNTIME = 'unknown';
 // difference, not a coverage gap, so coverage is compared through this map.
 const SHORT_NAME_BY_ID = Object.freeze({
   'claude-code': 'claude',
+  copilot: 'copilot',
   codex: 'codex',
   opencode: 'opencode',
 });
@@ -67,6 +68,9 @@ const RUNTIME_LISTS = Object.freeze([
     naming: 'short',
     note: 'Platform x runtime evidence grid.',
     exclusions: {
+      copilot:
+        'The evidence matrix has no collected Copilot runs yet; listing it would claim platform evidence '
+        + 'that has not been gathered. Add it after the Copilot compatibility matrix has real runs.',
       opencode:
         'The matrix iterates these to build cells and calls the grid complete only at >=5 real runs '
         + 'per platform per runtime. Listing opencode would assert evidence that has not been collected. '
@@ -80,6 +84,9 @@ const RUNTIME_LISTS = Object.freeze([
     naming: 'short',
     note: 'Optimizer runtime assignment.',
     exclusions: {
+      copilot:
+        'The frozen optimizer request contract has no Copilot model or execution options. Supporting it '
+        + 'requires a versioned contract revision and new committed evidence.',
       opencode:
         'Part of the frozen optimizer request contract verified by scripts/test-optimizer.js. Widening the '
         + 'accepted set changes what committed evidence would have validated against. Needs a contract '
@@ -93,6 +100,9 @@ const RUNTIME_LISTS = Object.freeze([
     naming: 'short',
     note: 'Runtimes a parallel fork branch may execute under.',
     exclusions: {
+      copilot:
+        'Citadel has no Copilot launcher for parallel fork executors. Accepting the runtime here would '
+        + 'create branches that the executor cannot start.',
       opencode:
         'Citadel spawns fork executors itself and there is no opencode launcher — core/forks ships '
         + 'claude-launcher.js only. Listing it would accept branches that cannot be run.',
@@ -105,6 +115,9 @@ const RUNTIME_LISTS = Object.freeze([
     naming: 'short',
     note: 'Executor profiles, including per-runtime adapter_options.',
     exclusions: {
+      copilot:
+        'Executor profiles have no Copilot launcher or adapter_options contract, so accepting the runtime '
+        + 'would validate profiles that cannot execute.',
       opencode:
         'Same missing launcher as forks/contracts.js, and adapter_options are validated per runtime with '
         + 'no opencode option set defined.',
@@ -117,6 +130,9 @@ const RUNTIME_LISTS = Object.freeze([
     naming: 'id',
     note: 'runtime_family used to stratify trial assignments.',
     exclusions: {
+      copilot:
+        'The trial contract currently groups unmodelled runtimes into the other stratum. Adding Copilot '
+        + 'would change the strata used by committed evidence and requires a contract revision.',
       opencode:
         'This is a stratification family, not a runtime id, and the list carries an "other" bucket that '
         + 'opencode trials fall into today. Promoting it to its own family would change the strata that '

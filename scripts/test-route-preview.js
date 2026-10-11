@@ -1,6 +1,8 @@
 #!/usr/bin/env node
 'use strict';
 
+process.env.CITADEL_RUNTIME ||= 'claude-code';
+
 const assert = require('assert');
 const childProcess = require('child_process');
 const fs = require('fs');
@@ -22,6 +24,14 @@ assert.deepEqual(parseArgs(['--json', '--project-root', '.', '--', 'review', 'au
     projectRoot: path.resolve(__dirname, '..'),
     gitDirty: false,
     now: '2026-06-05T12:00:00.000Z',
+    activationContext: {
+      usable: true,
+      receipt: {
+        authority: { valid: true },
+        bundles: { degraded: [], effective: ['core'], unavailable: [] },
+        activation: { onDemand: 'prompt' },
+      },
+    },
   });
   assert.equal(preview.selected, '/do next');
   assert.equal(preview.command, 'node scripts/operator-console.js --run');

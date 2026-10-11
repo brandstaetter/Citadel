@@ -8,10 +8,13 @@ const { CIT_EVENT_IDS } = require(path.join(__dirname, '..', 'contracts', 'event
 const TOOL_MAP = Object.freeze({
   shell: 'Bash',
   bash: 'Bash',
+  powershell: 'Bash',
   // Compatibility for pre-canonical/synthetic payloads. Current Codex hook
   // telemetry uses the authoritative Bash tool name.
   shell_command: 'Bash',
   edit: 'Edit',
+  str_replace_editor: 'Edit',
+  create: 'Write',
   write: 'Write',
   read: 'Read',
   glob: 'Glob',
@@ -22,6 +25,7 @@ const TOOL_MAP = Object.freeze({
   // `apply_patch` is deliberately absent: adapters split it into per-target
   // Edit/Write projections, which needs the original id to survive.
   task: 'Agent',
+  view: 'Read',
   skill: 'Skill',
   webfetch: 'WebFetch',
   websearch: 'WebSearch',
@@ -40,6 +44,33 @@ const CODEX_EVENT_MAP = Object.freeze({
   SubagentStop: CIT_EVENT_IDS.SUBAGENT_STOP,
   Stop: CIT_EVENT_IDS.STOP,
   SessionEnd: CIT_EVENT_IDS.SESSION_END,
+});
+
+const COPILOT_EVENT_MAP = Object.freeze({
+  sessionStart: CIT_EVENT_IDS.SESSION_START,
+  SessionStart: CIT_EVENT_IDS.SESSION_START,
+  preToolUse: CIT_EVENT_IDS.PRE_TOOL,
+  PreToolUse: CIT_EVENT_IDS.PRE_TOOL,
+  permissionRequest: CIT_EVENT_IDS.PERMISSION_REQUEST,
+  PermissionRequest: CIT_EVENT_IDS.PERMISSION_REQUEST,
+  postToolUse: CIT_EVENT_IDS.POST_TOOL,
+  PostToolUse: CIT_EVENT_IDS.POST_TOOL,
+  postToolUseFailure: CIT_EVENT_IDS.POST_TOOL_FAILURE,
+  PostToolUseFailure: CIT_EVENT_IDS.POST_TOOL_FAILURE,
+  preCompact: CIT_EVENT_IDS.PRE_COMPACT,
+  PreCompact: CIT_EVENT_IDS.PRE_COMPACT,
+  userPromptSubmitted: CIT_EVENT_IDS.USER_PROMPT_SUBMIT,
+  UserPromptSubmit: CIT_EVENT_IDS.USER_PROMPT_SUBMIT,
+  agentStop: CIT_EVENT_IDS.STOP,
+  Stop: CIT_EVENT_IDS.STOP,
+  sessionEnd: CIT_EVENT_IDS.SESSION_END,
+  SessionEnd: CIT_EVENT_IDS.SESSION_END,
+  subagentStart: CIT_EVENT_IDS.SUBAGENT_START,
+  SubagentStart: CIT_EVENT_IDS.SUBAGENT_START,
+  subagentStop: CIT_EVENT_IDS.SUBAGENT_STOP,
+  SubagentStop: CIT_EVENT_IDS.SUBAGENT_STOP,
+  notification: CIT_EVENT_IDS.NOTIFICATION,
+  Notification: CIT_EVENT_IDS.NOTIFICATION,
 });
 
 // opencode has no command hooks. Its native names are plugin hook keys
@@ -123,7 +154,9 @@ function normalizeToolName(toolName) {
 }
 
 function normalizePathFields(toolInput) {
-  const normalized = { ...(toolInput || {}) };
+  const normalized = toolInput && typeof toolInput === 'object' && !Array.isArray(toolInput)
+    ? { ...toolInput }
+    : {};
   // opencode names its file argument `filePath`. Canonicalize to `file_path` so
   // hooks keep reading one key, without clobbering an explicit `file_path`. The
   // untouched original is always available on the envelope's `raw` payload.
@@ -147,6 +180,7 @@ function normalizePathFields(toolInput) {
 
 const EVENT_MAPS = Object.freeze({
   codex: CODEX_EVENT_MAP,
+  copilot: COPILOT_EVENT_MAP,
   opencode: OPENCODE_EVENT_MAP,
   'claude-code': CLAUDE_EVENT_MAP,
 });
@@ -159,17 +193,25 @@ function createEnvelope(runtime, nativeEventName, payload) {
   const eventMap = eventMapFor(runtime);
   const normalizedEventId = eventMap[nativeEventName] || nativeEventName || 'unknown';
   const toolName = normalizeToolName(payload.tool_name || payload.tool_type || payload.toolName || '');
-  const toolInput = normalizePathFields(payload.tool_input || payload.toolInput || {});
+  let nativeToolInput = payload.tool_input ?? payload.toolArgs ?? payload.toolInput ?? {};
+  if (typeof nativeToolInput === 'string') {
+    try {
+      nativeToolInput = JSON.parse(nativeToolInput);
+    } catch {
+      nativeToolInput = runtime === 'copilot' ? null : { command: nativeToolInput };
+    }
+  }
+  const toolInput = normalizePathFields(nativeToolInput);
 
   return {
     event_id: normalizedEventId,
     runtime,
     native_event_name: nativeEventName || null,
     timestamp: payload.timestamp || new Date().toISOString(),
-    session_id: payload.session_id || null,
-    turn_id: payload.turn_id || null,
+    session_id: payload.session_id || payload.sessionId || null,
+    turn_id: payload.turn_id || payload.turnId || null,
     cwd: payload.cwd || null,
-    transcript_path: payload.transcript_path || null,
+    transcript_path: payload.transcript_path || payload.transcriptPath || null,
     model: payload.model || null,
     tool_name: toolName,
     tool_input: toolInput,
@@ -179,6 +221,7 @@ function createEnvelope(runtime, nativeEventName, payload) {
 
 module.exports = Object.freeze({
   CODEX_EVENT_MAP,
+  COPILOT_EVENT_MAP,
   CLAUDE_EVENT_MAP,
   OPENCODE_EVENT_MAP,
   eventMapFor,

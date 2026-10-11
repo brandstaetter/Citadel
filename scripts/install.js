@@ -8,18 +8,20 @@ const { spawnSync } = require('child_process');
 const activation = require('../core/telemetry/activation');
 
 const CITADEL_VERSION = require('../package.json').version;
-const HELP = `Usage: node scripts/install.js --runtime <claude|codex|opencode> [runtime options]
+const HELP = `Usage: node scripts/install.js --runtime <claude|copilot|codex|opencode> [runtime options]
 
 Unified Citadel installer dispatcher.
 
 Examples:
   node scripts/install.js --runtime claude --install --scope local
   node scripts/install.js --runtime codex --install
+  node scripts/install.js --runtime copilot --dry-run
   node scripts/install.js --runtime opencode --dry-run
 
 Run the runtime-specific helper for all options:
   node scripts/claude-install.js --help
   node scripts/codex-install.js --help
+  node scripts/copilot-install.js --help
 `;
 
 function arg(argv, name, fallback = null) {
@@ -51,6 +53,7 @@ function withoutRuntimeArgs(argv) {
 function normalizeRuntime(runtime) {
   if (runtime === 'claude' || runtime === 'claude-code') return 'claude-code';
   if (runtime === 'codex') return 'codex';
+  if (runtime === 'copilot' || runtime === 'github-copilot') return 'copilot';
   if (runtime === 'opencode') return 'opencode';
   return 'unknown';
 }
@@ -92,10 +95,12 @@ function execute(argv, options = {}) {
     claude: 'claude-install.js',
     'claude-code': 'claude-install.js',
     codex: 'codex-install.js',
+    copilot: 'copilot-install.js',
+    'github-copilot': 'copilot-install.js',
     opencode: 'opencode-install.js',
   };
   const scriptName = scriptByRuntime[runtimeArg];
-  if (!scriptName) return { status: 1, error: 'Missing or invalid --runtime. Expected claude, codex, or opencode.' };
+  if (!scriptName) return { status: 1, error: 'Missing or invalid --runtime. Expected claude, copilot, codex, or opencode.' };
 
   const root = targetRoot(argv, cwd);
   const runtime = normalizeRuntime(runtimeArg);

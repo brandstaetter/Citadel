@@ -8,7 +8,7 @@ const {
   createImportPlan, createRestorePlan, createRollbackPlan, createUpdatePlan,
 } = require('./evolution-planner');
 const {
-  proposeClaudeProjection, proposeCodexProjection,
+  proposeClaudeProjection, proposeCodexProjection, proposeCopilotProjection,
 } = require('./projections');
 const {
   defaultControlRoot, mirrorReceipt, readLedgerReceipt,
@@ -34,6 +34,7 @@ module.exports = Object.freeze({
   mirrorReceipt,
   proposeClaudeProjection,
   proposeCodexProjection,
+  proposeCopilotProjection,
   readLedgerReceipt,
   readReceipt,
 });

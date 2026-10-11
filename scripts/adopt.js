@@ -7,7 +7,7 @@ const {
   AdoptionError, applyPlan, createAdoptionPlan, createImportPlan,
   createLeavePlan, createRestorePlan, createRollbackPlan, createUpdatePlan,
   defaultControlRoot, doctor, loadPlan, proposeClaudeProjection,
-  proposeCodexProjection,
+  proposeCodexProjection, proposeCopilotProjection,
 } = require('../core/adoption');
 const fs = require('fs');
 const { readReceipt } = require('../core/adoption/planner');
@@ -314,7 +314,7 @@ function printPlan(plan, flags) {
 function usage() {
   return [
     'Usage:',
-    '  node scripts/adopt.js plan [source] [--target <path>] [--project-runtime codex] [--codex-mode plugin|fallback] [--allow-dirty-source] [--out <plan.json>] [--json]',
+    '  node scripts/adopt.js plan [source] [--target <path>] [--project-runtime claude|copilot|codex|both|all] [--codex-mode plugin|fallback] [--allow-dirty-source] [--out <plan.json>] [--json]',
     '  node scripts/adopt.js apply <plan.json> [--confirm <token>] [--json]',
     '  node scripts/adopt.js doctor [--target <path>] [--json]',
     '  node scripts/adopt.js update plan <source> --migration <file> [--target <path>] [--json]',
@@ -334,10 +334,10 @@ function runtimeProjections(flags, target, source) {
   if (!flags['project-runtime'] || !source) return [];
   const requested = flags['project-runtime'].split(',').map((item) => item.trim());
   const projections = [];
-  if (requested.includes('claude') || requested.includes('both')) {
+  if (requested.includes('claude') || requested.includes('both') || requested.includes('all')) {
     projections.push(proposeClaudeProjection({ target, source }));
   }
-  if (requested.includes('codex') || requested.includes('both')) {
+  if (requested.includes('codex') || requested.includes('both') || requested.includes('all')) {
     const mode = flags['codex-mode'] || 'plugin';
     let ownedPaths = [];
     try {
@@ -353,6 +353,9 @@ function runtimeProjections(flags, target, source) {
         .map((entry) => entry.path);
     } catch { /* the plan's receipt validation reports the actual blocker */ }
     projections.push(proposeCodexProjection({ target, source, mode, ownedPaths }));
+  }
+  if (requested.includes('copilot') || requested.includes('all')) {
+    projections.push(proposeCopilotProjection({ target, source }));
   }
   return projections;
 }

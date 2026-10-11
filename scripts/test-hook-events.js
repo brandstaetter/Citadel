@@ -8,14 +8,37 @@ const path = require('path');
 const { normalizeCodexHookInput } = require(path.join(__dirname, '..', 'runtimes', 'codex', 'adapters', 'hook-input'));
 const { normalizeClaudeHookInput } = require(path.join(__dirname, '..', 'runtimes', 'claude-code', 'adapters', 'hook-input'));
 const { normalizeOpencodeHookInput } = require(path.join(__dirname, '..', 'runtimes', 'opencode', 'adapters', 'hook-input'));
+const { normalizeCopilotHookInput } = require(path.join(__dirname, '..', 'runtimes', 'copilot', 'adapters', 'hook-input'));
 const { toLegacyHookPayload } = require(path.join(__dirname, '..', 'core', 'hooks', 'hook-context'));
 const normalizeEvent = require(path.join(__dirname, '..', 'core', 'hooks', 'normalize-event'));
 
 const OPENCODE_FIXTURE = path.join(__dirname, 'fixtures', 'opencode-hook-events.json');
+const COPILOT_FIXTURE = path.join(__dirname, 'fixtures', 'copilot-hook-events.json');
 
 function fail(message) {
   console.error(message);
   process.exit(1);
+}
+
+function assertCopilotEquivalence() {
+  const fixture = JSON.parse(fs.readFileSync(COPILOT_FIXTURE, 'utf8'));
+  for (const item of fixture.equivalents) {
+    const copilot = normalizeCopilotHookInput(item.copilot, item.event);
+    const claude = normalizeClaudeHookInput(item.claude);
+    for (const [field, expected] of Object.entries(item.expect)) {
+      assert.deepStrictEqual(copilot[field], expected, `${item.name}: Copilot ${field} mismatch`);
+      assert.deepStrictEqual(claude[field], expected, `${item.name}: Claude ${field} mismatch`);
+    }
+    assert.equal(copilot.runtime, 'copilot');
+    assert.equal(copilot.native_event_name, item.event);
+    assert.strictEqual(copilot.raw, item.copilot);
+  }
+  assert.equal(
+    normalizeCopilotHookInput({}, fixture.unknown).event_id,
+    fixture.unknown,
+    'unknown Copilot events must remain explicit',
+  );
+  assert.equal(normalizeEvent.eventMapFor('copilot'), normalizeEvent.COPILOT_EVENT_MAP);
 }
 
 // A hook must not be able to tell which runtime it is running under. For every
@@ -157,6 +180,7 @@ function main() {
   if (legacy._event_id !== 'pre_tool') fail('Legacy hook payload event metadata mismatch');
 
   assertOpencodeEquivalence();
+  assertCopilotEquivalence();
 
   console.log('Hook event normalization tests pass.');
 }

@@ -27,7 +27,7 @@ const CAPABILITIES = Object.freeze([
 ]);
 // Every runtime a pack may declare support for. Kept in step with the runtime
 // registry by the inventory in scripts/test-runtime-registry.js.
-const RUNTIMES = Object.freeze(['claude-code', 'codex', 'opencode']);
+const RUNTIMES = Object.freeze(['claude-code', 'copilot', 'codex', 'opencode']);
 const STOPPING_CONDITIONS = Object.freeze([
   'verified', 'failed', 'blocked', 'unknown', 'needs-human-review',
   'budget-exhausted', 'attempt-limit', 'unsafe-to-continue',

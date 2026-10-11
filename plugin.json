@@ -1,0 +1,21 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "citadel",
+  "version": "1.4.4",
+  "description": "Agent orchestration harness for durable campaigns, skills, hooks, telemetry, and parallel work.",
+  "author": {
+    "name": "Citadel",
+    "url": "https://github.com/SethGammon/Citadel"
+  },
+  "homepage": "https://sethgammon.github.io/Citadel/",
+  "repository": "https://github.com/SethGammon/Citadel",
+  "license": "MIT",
+  "keywords": [
+    "agent",
+    "harness",
+    "orchestration",
+    "skills",
+    "hooks",
+    "copilot"
+  ]
+}

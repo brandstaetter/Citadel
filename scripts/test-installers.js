@@ -8,6 +8,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const activation = require('../core/telemetry/activation');
+const copilotInstaller = require('./copilot-install');
 const installer = require('./install');
 const {
   assertPortableSharedOutputs,
@@ -19,6 +20,7 @@ const {
 } = require('../core/runtime/install-contract');
 const { installClaudeHooks } = require('../runtimes/claude-code/generators/install-hooks');
 const { installCodexHooks } = require('../runtimes/codex/generators/install-hooks');
+const { installCopilotHooks } = require('../runtimes/copilot/generators/install-hooks');
 
 const CITADEL_ROOT = path.resolve(__dirname, '..');
 
@@ -100,6 +102,47 @@ function testUnifiedDispatcherDryRun() {
     ]);
     assert.equal(codexFallback.mode, 'project-fallback');
     assert(codexFallback.steps.some((step) => step.name === 'Generate Codex project artifacts'));
+
+    const copilot = runJson([
+      path.join(CITADEL_ROOT, 'scripts', 'install.js'),
+      '--runtime',
+      'copilot',
+      '--project-root',
+      tmp,
+      '--dry-run',
+      '--json',
+    ]);
+    assert(copilot.ok, JSON.stringify(copilot, null, 2));
+    assert(copilot.dryRun);
+    assert.equal(copilot.mode, 'plugin-only');
+    assert(copilot.steps.some((step) => step.name === 'Generate native Copilot plugin hooks'));
+
+    const copilotFallback = runJson([
+      path.join(CITADEL_ROOT, 'scripts', 'install.js'),
+      '--runtime',
+      'copilot',
+      '--project-root',
+      tmp,
+      '--fallback',
+      '--dry-run',
+      '--json',
+    ]);
+    assert.equal(copilotFallback.mode, 'project-fallback');
+    assert(copilotFallback.writes.some((write) =>
+      write.path.endsWith(path.join('.github', 'copilot', 'settings.local.json'))));
+
+    const invalidCopilot = copilotInstaller.run(
+      ['--project-root', tmp, '--plugin-only', '--fallback', '--dry-run'],
+    );
+    assert.equal(invalidCopilot.ok, false);
+
+    const duplicateCopilot = copilotInstaller.run(
+      ['--project-root', tmp, '--fallback'],
+      {
+        spawnSync: () => ({ status: 0, stdout: 'citadel@citadel-local enabled\n', stderr: '' }),
+      },
+    );
+    assert.equal(duplicateCopilot.code, 'COPILOT_DUPLICATE_HOOK_REGISTRATION');
 
     const claude = runJson([
       path.join(CITADEL_ROOT, 'scripts', 'install.js'),
@@ -230,6 +273,7 @@ function testPortableInstallContractAndTwoClones() {
     assert(ensureMachineLocalExcludes(first).skipped, 'local exclusion installation must be idempotent');
     const firstExcludeText = fs.readFileSync(path.join(first, '.git', 'info', 'exclude'), 'utf8');
     assert(firstExcludeText.includes('.opencode/'));
+    assert(firstExcludeText.includes('.github/copilot/settings.local.json'));
     assert(firstExcludeText.includes('.planning/opencode/'),
       'OpenCode pending notices must be machine-local by default');
 
@@ -262,6 +306,9 @@ function testPortableInstallContractAndTwoClones() {
     const inventory = inspectInstallInventory(first, { runtime: 'codex' });
     assert(inventory.registrations.some((item) => item.runtime === 'claude-code'));
     assert(inventory.registrations.some((item) => item.runtime === 'codex'));
+    installCopilotHooks({ projectRoot: first, citadelRoot: CITADEL_ROOT });
+    const mixedInventory = inspectInstallInventory(first, { runtime: 'copilot' });
+    assert(mixedInventory.registrations.some((item) => item.runtime === 'copilot'));
     assert.equal(inventory.diagnostics.length, 0, 'Claude and Codex registrations should coexist');
 
     const duplicateRoot = gitLikeProject('citadel-duplicate-');

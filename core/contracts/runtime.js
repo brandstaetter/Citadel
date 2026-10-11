@@ -7,6 +7,7 @@ const { CIT_EVENT_ORDER } = require('./events');
 
 const RUNTIME_IDS = Object.freeze([
   'claude-code',
+  'copilot',
   'codex',
   'opencode',
   'openai',
@@ -27,6 +28,12 @@ const RUNTIME_ADAPTER_MATRIX = Object.freeze({
     guarantees: ['project guidance', 'skills', 'agents', 'hooks', 'workspace shell', 'worktrees'],
     missing: ['runtime-native MCP server mode'],
     tradeoffs: 'Highest Citadel hook parity; Citadel still owns campaign files, telemetry, and policy state.',
+  },
+  copilot: {
+    level: ADAPTER_LEVELS.HOOK_ENABLED,
+    guarantees: ['project guidance', 'skills', 'agents', 'hooks', 'workspace shell'],
+    missing: ['hook timeout enforcement', 'uniform cloud-agent permissions', 'native worktree lifecycle'],
+    tradeoffs: 'Command hooks fail closed on execution errors for security gates, but Copilot fails open on timeout and cloud-agent permission requests are pre-approved.',
   },
   codex: {
     level: ADAPTER_LEVELS.MANAGED_SUBAGENT,

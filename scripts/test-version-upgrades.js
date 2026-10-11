@@ -12,13 +12,13 @@ const repo = path.resolve(__dirname, '..');
 const readJson = file => JSON.parse(fs.readFileSync(path.join(repo, file), 'utf8'));
 const version = readJson('package.json').version;
 
-for (const file of ['citadel-metadata.json', '.claude-plugin/plugin.json', '.codex-plugin/plugin.json']) {
+for (const file of ['citadel-metadata.json', '.claude-plugin/plugin.json', '.codex-plugin/plugin.json', 'plugin.json']) {
   assert.equal(readJson(file).version, version, file + ' release version drift');
 }
 const lock = readJson('package-lock.json');
 assert.equal(lock.version, version);
 assert.equal(lock.packages[''].version, version);
-for (const file of ['.claude-plugin/marketplace.json', '.agents/plugins/marketplace.json']) {
+for (const file of ['.claude-plugin/marketplace.json', '.agents/plugins/marketplace.json', '.github/plugin/marketplace.json']) {
   assert.equal(readJson(file).plugins.find(plugin => plugin.name === 'citadel').version, version, file);
 }
 for (const file of ['README.md', 'INSTALL.md', 'docs/RELEASES.md']) {

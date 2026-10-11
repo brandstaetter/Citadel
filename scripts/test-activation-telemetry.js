@@ -267,10 +267,11 @@ test('CLI supports plan-like record, status, opt-out and opt-in', () => {
 test('every runtime the installer can emit is an accepted runtime', () => {
   const installer = require('./install.js');
   const emitted = new Set(
-    ['claude', 'claude-code', 'codex', 'opencode', 'anything-else']
+    ['claude', 'claude-code', 'copilot', 'codex', 'opencode', 'anything-else']
       .map((value) => installer.normalizeRuntime(value)),
   );
   assert(emitted.has('opencode'), 'the installer must still be able to emit opencode');
+  assert(emitted.has('copilot'), 'the installer must be able to emit copilot');
   for (const runtime of emitted) {
     assert(
       activation.RUNTIMES.includes(runtime),

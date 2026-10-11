@@ -9,6 +9,8 @@ const path = require('path');
 
 const { installClaudeHooks } = require('../runtimes/claude-code/generators/install-hooks');
 const { installCodexHooks, translateCodexHooks, translateCodexPluginHooks } = require('../runtimes/codex/generators/install-hooks');
+const { installCopilotHooks, translateCopilotHooks } = require('../runtimes/copilot/generators/install-hooks');
+const { generateCopilotPluginHooks, PLUGIN_ADAPTER } = require('../runtimes/copilot/generators/plugin');
 const { claudeShellContainmentReadiness } = require('../core/security/shell-containment');
 
 function withTempDir(run) {
@@ -73,6 +75,53 @@ withTempDir((projectRoot) => {
   assert.deepEqual(reinstalled.hooks, settings.hooks,
     'claude hook reinstall should preserve the exact merged hook registration set');
 
+});
+
+const copilotTranslated = translateCopilotHooks(hooksTemplate, '/tmp/copilot-adapter.js');
+assert(copilotTranslated.installed.length > 0);
+assert(copilotTranslated.skipped.length > 0);
+assert.deepEqual(Object.keys(copilotTranslated.hooks).sort(), [
+  'agentStop',
+  'notification',
+  'permissionRequest',
+  'postToolUse',
+  'postToolUseFailure',
+  'preCompact',
+  'preToolUse',
+  'sessionEnd',
+  'sessionStart',
+  'subagentStart',
+  'subagentStop',
+  'userPromptSubmitted',
+]);
+assert(copilotTranslated.hooks.preToolUse.some((entry) =>
+  entry.matcher === 'view' && entry.args.includes('protect-files')));
+assert(copilotTranslated.hooks.preToolUse.some((entry) =>
+  entry.matcher === 'apply_patch' && entry.args.includes('protect-files')));
+assert(copilotTranslated.hooks.preToolUse.every((entry) =>
+  entry.exec === 'node' && entry.env.CITADEL_RUNTIME === 'copilot'));
+const copilotPlugin = generateCopilotPluginHooks({ citadelRoot });
+assert(copilotPlugin.config.hooks.preToolUse.every((entry) =>
+  entry.args.includes(PLUGIN_ADAPTER)));
+
+withTempDir((projectRoot) => {
+  const outputPath = path.join(projectRoot, '.github', 'copilot', 'settings.local.json');
+  const first = installCopilotHooks({
+    projectRoot,
+    citadelRoot,
+    existing: {
+      version: 1,
+      customSetting: true,
+      hooks: {
+        preToolUse: [{ type: 'command', exec: 'node', args: ['/custom/hook.js'] }],
+      },
+    },
+  });
+  const initial = fs.readFileSync(outputPath, 'utf8');
+  installCopilotHooks({ projectRoot, citadelRoot });
+  assert.equal(fs.readFileSync(outputPath, 'utf8'), initial);
+  assert(first.settings.customSetting);
+  assert(first.hooks.preToolUse.some((entry) => entry.args.includes('/custom/hook.js')));
 });
 
 withTempDir((projectRoot) => {

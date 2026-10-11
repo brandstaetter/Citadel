@@ -1,0 +1,561 @@
+{
+  "version": 1,
+  "hooks": {
+    "preToolUse": [
+      {
+        "type": "command",
+        "exec": "node",
+        "args": [
+          "${PLUGIN_ROOT}/hooks_src/copilot-adapter.js",
+          "protect-files",
+          "preToolUse"
+        ],
+        "env": {
+          "CITADEL_RUNTIME": "copilot"
+        },
+        "timeoutSec": 5,
+        "matcher": "edit"
+      },
+      {
+        "type": "command",
+        "exec": "node",
+        "args": [
+          "${PLUGIN_ROOT}/hooks_src/copilot-adapter.js",
+          "protect-files",
+          "preToolUse"
+        ],
+        "env": {
+          "CITADEL_RUNTIME": "copilot"
+        },
+        "timeoutSec": 5,
+        "matcher": "str_replace_editor"
+      },
+      {
+        "type": "command",
+        "exec": "node",
+        "args": [
+          "${PLUGIN_ROOT}/hooks_src/copilot-adapter.js",
+          "protect-files",
+          "preToolUse"
+        ],
+        "env": {
+          "CITADEL_RUNTIME": "copilot"
+        },
+        "timeoutSec": 5,
+        "matcher": "apply_patch"
+      },
+      {
+        "type": "command",
+        "exec": "node",
+        "args": [
+          "${PLUGIN_ROOT}/hooks_src/copilot-adapter.js",
+          "protect-files",
+          "preToolUse"
+        ],
+        "env": {
+          "CITADEL_RUNTIME": "copilot"
+        },
+        "timeoutSec": 5,
+        "matcher": "create"
+      },
+      {
+        "type": "command",
+        "exec": "node",
+        "args": [
+          "${PLUGIN_ROOT}/hooks_src/copilot-adapter.js",
+          "protect-files",
+          "preToolUse"
+        ],
+        "env": {
+          "CITADEL_RUNTIME": "copilot"
+        },
+        "timeoutSec": 5,
+        "matcher": "view"
+      },
+      {
+        "type": "command",
+        "exec": "node",
+        "args": [
+          "${PLUGIN_ROOT}/hooks_src/copilot-adapter.js",
+          "external-action-gate",
+          "preToolUse"
+        ],
+        "env": {
+          "CITADEL_RUNTIME": "copilot"
+        },
+        "timeoutSec": 5,
+        "matcher": "bash"
+      },
+      {
+        "type": "command",
+        "exec": "node",
+        "args": [
+          "${PLUGIN_ROOT}/hooks_src/copilot-adapter.js",
+          "external-action-gate",
+          "preToolUse"
+        ],
+        "env": {
+          "CITADEL_RUNTIME": "copilot"
+        },
+        "timeoutSec": 5,
+        "matcher": "powershell"
+      },
+      {
+        "type": "command",
+        "exec": "node",
+        "args": [
+          "${PLUGIN_ROOT}/hooks_src/copilot-adapter.js",
+          "governance",
+          "preToolUse"
+        ],
+        "env": {
+          "CITADEL_RUNTIME": "copilot"
+        },
+        "timeoutSec": 3,
+        "matcher": "edit"
+      },
+      {
+        "type": "command",
+        "exec": "node",
+        "args": [
+          "${PLUGIN_ROOT}/hooks_src/copilot-adapter.js",
+          "governance",
+          "preToolUse"
+        ],
+        "env": {
+          "CITADEL_RUNTIME": "copilot"
+        },
+        "timeoutSec": 3,
+        "matcher": "str_replace_editor"
+      },
+      {
+        "type": "command",
+        "exec": "node",
+        "args": [
+          "${PLUGIN_ROOT}/hooks_src/copilot-adapter.js",
+          "governance",
+          "preToolUse"
+        ],
+        "env": {
+          "CITADEL_RUNTIME": "copilot"
+        },
+        "timeoutSec": 3,
+        "matcher": "apply_patch"
+      },
+      {
+        "type": "command",
+        "exec": "node",
+        "args": [
+          "${PLUGIN_ROOT}/hooks_src/copilot-adapter.js",
+          "governance",
+          "preToolUse"
+        ],
+        "env": {
+          "CITADEL_RUNTIME": "copilot"
+        },
+        "timeoutSec": 3,
+        "matcher": "create"
+      },
+      {
+        "type": "command",
+        "exec": "node",
+        "args": [
+          "${PLUGIN_ROOT}/hooks_src/copilot-adapter.js",
+          "governance",
+          "preToolUse"
+        ],
+        "env": {
+          "CITADEL_RUNTIME": "copilot"
+        },
+        "timeoutSec": 3,
+        "matcher": "bash"
+      },
+      {
+        "type": "command",
+        "exec": "node",
+        "args": [
+          "${PLUGIN_ROOT}/hooks_src/copilot-adapter.js",
+          "governance",
+          "preToolUse"
+        ],
+        "env": {
+          "CITADEL_RUNTIME": "copilot"
+        },
+        "timeoutSec": 3,
+        "matcher": "powershell"
+      },
+      {
+        "type": "command",
+        "exec": "node",
+        "args": [
+          "${PLUGIN_ROOT}/hooks_src/copilot-adapter.js",
+          "governance",
+          "preToolUse"
+        ],
+        "env": {
+          "CITADEL_RUNTIME": "copilot"
+        },
+        "timeoutSec": 3,
+        "matcher": "task"
+      }
+    ],
+    "postToolUse": [
+      {
+        "type": "command",
+        "exec": "node",
+        "args": [
+          "${PLUGIN_ROOT}/hooks_src/copilot-adapter.js",
+          "post-edit",
+          "postToolUse"
+        ],
+        "env": {
+          "CITADEL_RUNTIME": "copilot"
+        },
+        "timeoutSec": 30
+      },
+      {
+        "type": "command",
+        "exec": "node",
+        "args": [
+          "${PLUGIN_ROOT}/hooks_src/copilot-adapter.js",
+          "organize-enforce",
+          "postToolUse"
+        ],
+        "env": {
+          "CITADEL_RUNTIME": "copilot"
+        },
+        "timeoutSec": 5,
+        "matcher": "edit"
+      },
+      {
+        "type": "command",
+        "exec": "node",
+        "args": [
+          "${PLUGIN_ROOT}/hooks_src/copilot-adapter.js",
+          "organize-enforce",
+          "postToolUse"
+        ],
+        "env": {
+          "CITADEL_RUNTIME": "copilot"
+        },
+        "timeoutSec": 5,
+        "matcher": "str_replace_editor"
+      },
+      {
+        "type": "command",
+        "exec": "node",
+        "args": [
+          "${PLUGIN_ROOT}/hooks_src/copilot-adapter.js",
+          "organize-enforce",
+          "postToolUse"
+        ],
+        "env": {
+          "CITADEL_RUNTIME": "copilot"
+        },
+        "timeoutSec": 5,
+        "matcher": "apply_patch"
+      },
+      {
+        "type": "command",
+        "exec": "node",
+        "args": [
+          "${PLUGIN_ROOT}/hooks_src/copilot-adapter.js",
+          "organize-enforce",
+          "postToolUse"
+        ],
+        "env": {
+          "CITADEL_RUNTIME": "copilot"
+        },
+        "timeoutSec": 5,
+        "matcher": "create"
+      },
+      {
+        "type": "command",
+        "exec": "node",
+        "args": [
+          "${PLUGIN_ROOT}/hooks_src/copilot-adapter.js",
+          "complexity-check",
+          "postToolUse"
+        ],
+        "env": {
+          "CITADEL_RUNTIME": "copilot"
+        },
+        "timeoutSec": 5,
+        "matcher": "edit"
+      },
+      {
+        "type": "command",
+        "exec": "node",
+        "args": [
+          "${PLUGIN_ROOT}/hooks_src/copilot-adapter.js",
+          "complexity-check",
+          "postToolUse"
+        ],
+        "env": {
+          "CITADEL_RUNTIME": "copilot"
+        },
+        "timeoutSec": 5,
+        "matcher": "str_replace_editor"
+      },
+      {
+        "type": "command",
+        "exec": "node",
+        "args": [
+          "${PLUGIN_ROOT}/hooks_src/copilot-adapter.js",
+          "complexity-check",
+          "postToolUse"
+        ],
+        "env": {
+          "CITADEL_RUNTIME": "copilot"
+        },
+        "timeoutSec": 5,
+        "matcher": "apply_patch"
+      },
+      {
+        "type": "command",
+        "exec": "node",
+        "args": [
+          "${PLUGIN_ROOT}/hooks_src/copilot-adapter.js",
+          "complexity-check",
+          "postToolUse"
+        ],
+        "env": {
+          "CITADEL_RUNTIME": "copilot"
+        },
+        "timeoutSec": 5,
+        "matcher": "create"
+      },
+      {
+        "type": "command",
+        "exec": "node",
+        "args": [
+          "${PLUGIN_ROOT}/hooks_src/copilot-adapter.js",
+          "circuit-breaker",
+          "postToolUse"
+        ],
+        "env": {
+          "CITADEL_RUNTIME": "copilot"
+        },
+        "timeoutSec": 5,
+        "matcher": "bash"
+      },
+      {
+        "type": "command",
+        "exec": "node",
+        "args": [
+          "${PLUGIN_ROOT}/hooks_src/copilot-adapter.js",
+          "circuit-breaker",
+          "postToolUse"
+        ],
+        "env": {
+          "CITADEL_RUNTIME": "copilot"
+        },
+        "timeoutSec": 5,
+        "matcher": "powershell"
+      },
+      {
+        "type": "command",
+        "exec": "node",
+        "args": [
+          "${PLUGIN_ROOT}/hooks_src/copilot-adapter.js",
+          "cost-tracker",
+          "postToolUse"
+        ],
+        "env": {
+          "CITADEL_RUNTIME": "copilot"
+        },
+        "timeoutSec": 5
+      }
+    ],
+    "postToolUseFailure": [
+      {
+        "type": "command",
+        "exec": "node",
+        "args": [
+          "${PLUGIN_ROOT}/hooks_src/copilot-adapter.js",
+          "circuit-breaker",
+          "postToolUseFailure"
+        ],
+        "env": {
+          "CITADEL_RUNTIME": "copilot"
+        },
+        "timeoutSec": 5
+      }
+    ],
+    "preCompact": [
+      {
+        "type": "command",
+        "exec": "node",
+        "args": [
+          "${PLUGIN_ROOT}/hooks_src/copilot-adapter.js",
+          "pre-compact",
+          "preCompact"
+        ],
+        "env": {
+          "CITADEL_RUNTIME": "copilot"
+        },
+        "timeoutSec": 15
+      }
+    ],
+    "agentStop": [
+      {
+        "type": "command",
+        "exec": "node",
+        "args": [
+          "${PLUGIN_ROOT}/hooks_src/copilot-adapter.js",
+          "quality-gate",
+          "agentStop"
+        ],
+        "env": {
+          "CITADEL_RUNTIME": "copilot"
+        },
+        "timeoutSec": 10
+      }
+    ],
+    "userPromptSubmitted": [
+      {
+        "type": "command",
+        "exec": "node",
+        "args": [
+          "${PLUGIN_ROOT}/hooks_src/copilot-adapter.js",
+          "user-prompt-submit",
+          "userPromptSubmitted"
+        ],
+        "env": {
+          "CITADEL_RUNTIME": "copilot"
+        },
+        "timeoutSec": 5
+      }
+    ],
+    "sessionStart": [
+      {
+        "type": "command",
+        "exec": "node",
+        "args": [
+          "${PLUGIN_ROOT}/hooks_src/copilot-adapter.js",
+          "init-project",
+          "sessionStart"
+        ],
+        "env": {
+          "CITADEL_RUNTIME": "copilot"
+        },
+        "timeoutSec": 10
+      },
+      {
+        "type": "command",
+        "exec": "node",
+        "args": [
+          "${PLUGIN_ROOT}/hooks_src/copilot-adapter.js",
+          "restore-compact",
+          "sessionStart"
+        ],
+        "env": {
+          "CITADEL_RUNTIME": "copilot"
+        },
+        "timeoutSec": 5,
+        "matcher": "compact"
+      },
+      {
+        "type": "command",
+        "exec": "node",
+        "args": [
+          "${PLUGIN_ROOT}/hooks_src/copilot-adapter.js",
+          "intake-scanner",
+          "sessionStart"
+        ],
+        "env": {
+          "CITADEL_RUNTIME": "copilot"
+        },
+        "timeoutSec": 5
+      },
+      {
+        "type": "command",
+        "exec": "node",
+        "args": [
+          "${PLUGIN_ROOT}/hooks_src/copilot-adapter.js",
+          "instructions-watch",
+          "sessionStart"
+        ],
+        "env": {
+          "CITADEL_RUNTIME": "copilot"
+        },
+        "timeoutSec": 5
+      }
+    ],
+    "sessionEnd": [
+      {
+        "type": "command",
+        "exec": "node",
+        "args": [
+          "${PLUGIN_ROOT}/hooks_src/copilot-adapter.js",
+          "session-end",
+          "sessionEnd"
+        ],
+        "env": {
+          "CITADEL_RUNTIME": "copilot"
+        },
+        "timeoutSec": 10
+      }
+    ],
+    "subagentStart": [
+      {
+        "type": "command",
+        "exec": "node",
+        "args": [
+          "${PLUGIN_ROOT}/hooks_src/copilot-adapter.js",
+          "subagent-start",
+          "subagentStart"
+        ],
+        "env": {
+          "CITADEL_RUNTIME": "copilot"
+        },
+        "timeoutSec": 5
+      }
+    ],
+    "subagentStop": [
+      {
+        "type": "command",
+        "exec": "node",
+        "args": [
+          "${PLUGIN_ROOT}/hooks_src/copilot-adapter.js",
+          "subagent-stop",
+          "subagentStop"
+        ],
+        "env": {
+          "CITADEL_RUNTIME": "copilot"
+        },
+        "timeoutSec": 5
+      }
+    ],
+    "permissionRequest": [
+      {
+        "type": "command",
+        "exec": "node",
+        "args": [
+          "${PLUGIN_ROOT}/hooks_src/copilot-adapter.js",
+          "permission-request",
+          "permissionRequest"
+        ],
+        "env": {
+          "CITADEL_RUNTIME": "copilot"
+        },
+        "timeoutSec": 3
+      }
+    ],
+    "notification": [
+      {
+        "type": "command",
+        "exec": "node",
+        "args": [
+          "${PLUGIN_ROOT}/hooks_src/copilot-adapter.js",
+          "notification",
+          "notification"
+        ],
+        "env": {
+          "CITADEL_RUNTIME": "copilot"
+        },
+        "timeoutSec": 5
+      }
+    ]
+  }
+}

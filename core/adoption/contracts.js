@@ -196,7 +196,7 @@ function validatePredecessor(value, label, errors, nullable = false) {
 
 function validateProjection(value, label, errors) {
   if (!exact(value, ['runtime', 'status', 'proposed_effects'], label, errors)) return;
-  if (!['claude', 'codex'].includes(value.runtime) || typeof value.status !== 'string'
+  if (!['claude', 'copilot', 'codex'].includes(value.runtime) || typeof value.status !== 'string'
       || !Array.isArray(value.proposed_effects)) errors.push(`${label} identity is invalid`);
   else value.proposed_effects.forEach((effect, index) => {
     const effectLabel = `${label}.proposed_effects[${index}]`;

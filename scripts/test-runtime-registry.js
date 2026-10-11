@@ -12,6 +12,7 @@ const {
 } = require(path.join(__dirname, '..', 'core', 'runtime', 'detect-runtime'));
 const fs = require('fs');
 const inventory = require(path.join(__dirname, '..', 'core', 'runtime', 'runtime-list-inventory'));
+const { runtimeContract } = require(path.join(__dirname, '..', 'core', 'config', 'runtime'));
 
 function fail(message) {
   console.error(message);
@@ -118,13 +119,13 @@ function checkNoUndeclaredRuntimeLists() {
 
 function main() {
   const runtimeIds = listRuntimeIds();
-  for (const expected of ['claude-code', 'codex', 'opencode', 'unknown']) {
+  for (const expected of ['claude-code', 'copilot', 'codex', 'opencode', 'unknown']) {
     if (!runtimeIds.includes(expected)) {
       fail(`Runtime registry missing expected runtime id: ${expected}`);
     }
   }
 
-  for (const expected of ['codex', 'opencode']) {
+  for (const expected of ['copilot', 'codex', 'opencode']) {
     if (!VALID_RUNTIMES.includes(expected)) {
       fail(`Detect-runtime valid runtime list missing ${expected}`);
     }
@@ -132,15 +133,22 @@ function main() {
 
   const claude = getRuntimeDefinition('claude-code');
   const codex = getRuntimeDefinition('codex');
+  const copilot = getRuntimeDefinition('copilot');
   const opencode = getRuntimeDefinition('opencode');
   const unknown = getRuntimeDefinition('does-not-exist');
 
   if (claude.id !== 'claude-code') fail('Claude runtime definition mismatch');
   if (codex.id !== 'codex') fail('Codex runtime definition mismatch');
+  if (copilot.id !== 'copilot') fail('Copilot runtime definition mismatch');
+  if (runtimeContract('copilot').id !== 'copilot') fail('Copilot config runtime contract mismatch');
   if (opencode.id !== 'opencode') fail('opencode runtime definition mismatch');
   if (unknown.id !== 'unknown') fail('Unknown runtime fallback mismatch');
   if (claude.capabilities.hooks.support !== 'full') fail('Claude runtime hooks capability mismatch');
   if (codex.capabilities.hooks.support === 'full') fail('Codex runtime hooks support should not be full');
+  if (copilot.capabilities.hooks.support !== 'partial') fail('Copilot runtime hooks support must be partial');
+  if (!copilot.degradations.includes('hook-timeouts-fail-open')) {
+    fail('Copilot runtime must declare that hook timeouts fail open');
+  }
 
   // opencode cannot block on Stop and has no native permission gate. Claiming
   // full hook support, or dropping those degradations, would misreport the
@@ -248,6 +256,11 @@ function main() {
     probe({ platform: 'linux', probeFails: false, parentCommand: 'bun /home/u/.opencode/bin/opencode', markers: [] })
       .result.runtime,
     'opencode',
+  );
+  assert.equal(
+    probe({ platform: 'linux', probeFails: false, parentCommand: '/usr/local/bin/copilot', markers: [] })
+      .result.runtime,
+    'copilot',
   );
 
   // Multiple markers are an unsafe state. Detection must not use directory

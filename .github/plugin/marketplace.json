@@ -1,0 +1,34 @@
+{
+  "name": "citadel-local",
+  "owner": {
+    "name": "SethGammon",
+    "email": "noreply@github.com"
+  },
+  "metadata": {
+    "description": "Local Citadel Agent Plugins marketplace",
+    "version": "1.4.4"
+  },
+  "plugins": [
+    {
+      "name": "citadel",
+      "source": "./",
+      "description": "Agent orchestration harness for durable campaigns, skills, hooks, telemetry, and parallel work.",
+      "version": "1.4.4",
+      "author": {
+        "name": "Citadel",
+        "url": "https://github.com/SethGammon/Citadel"
+      },
+      "homepage": "https://sethgammon.github.io/Citadel/",
+      "repository": "https://github.com/SethGammon/Citadel",
+      "license": "MIT",
+      "keywords": [
+        "agent",
+        "harness",
+        "orchestration",
+        "skills",
+        "hooks",
+        "copilot"
+      ]
+    }
+  ]
+}

@@ -23,7 +23,7 @@ const ACQUISITION_SOURCES = [
 // emit but this list omits makes every install for that runtime throw validation,
 // which recordSafely turns into a silent recorded:false. opencode was missing
 // here and its installs were dropped from activation metrics entirely.
-const RUNTIMES = ['claude-code', 'codex', 'opencode', 'unknown', 'other'];
+const RUNTIMES = ['claude-code', 'copilot', 'codex', 'opencode', 'unknown', 'other'];
 const OS_FAMILIES = ['windows', 'macos', 'linux', 'other'];
 const EVENT_FIELDS = [
   'schema', 'timestamp', 'installation_id', 'citadel_version', 'runtime', 'os_family',

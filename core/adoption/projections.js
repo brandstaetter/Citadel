@@ -6,6 +6,10 @@ const { digestBytes } = require('./contracts');
 const { snapshot } = require('./footprint');
 const { mergeHookMaps } = require('../hooks/install');
 const { translateCodexHooks } = require('../../runtimes/codex/generators/install-hooks');
+const {
+  preserveUserHooks: preserveCopilotUserHooks,
+  translateCopilotHooks,
+} = require('../../runtimes/copilot/generators/install-hooks');
 
 function readJson(file, fallback = {}) {
   if (!fs.existsSync(file)) return fallback;
@@ -25,7 +29,7 @@ function fileProposal(runtime, surface, target, relativePath, content, ownership
     removal: {
       strategy: removal,
       evidence_status: 'planned',
-      required_observation: ownership === 'shared'
+      required_observation: removal === 'restore_preimage_if_exact'
         ? 'installed digest unchanged, then pre-image restored exactly'
         : 'installed digest unchanged, then file absent',
     },
@@ -156,6 +160,7 @@ function proposeCodexProjection(options) {
       ],
     };
   }
+
   const hooksTemplate = JSON.parse(
     fs.readFileSync(path.join(source, 'hooks', 'hooks-template.json'), 'utf8')
       .replace(/\$\{CLAUDE_PLUGIN_ROOT\}/g, source.replace(/\\/g, '/')),
@@ -183,11 +188,45 @@ function proposeCodexProjection(options) {
   };
 }
 
+function proposeCopilotProjection(options) {
+  const target = path.resolve(options.target);
+  const source = path.resolve(options.source);
+  const settingsRelative = '.github/copilot/settings.local.json';
+  const settingsPath = path.join(target, ...settingsRelative.split('/'));
+  const existing = readJson(settingsPath, {});
+  const template = JSON.parse(fs.readFileSync(path.join(source, 'hooks', 'hooks-template.json'), 'utf8'));
+  const translated = translateCopilotHooks(
+    template,
+    path.join(source, 'hooks_src', 'copilot-adapter.js'),
+  );
+  const preserved = preserveCopilotUserHooks(existing.hooks || {});
+  const hooks = { ...preserved };
+  for (const [event, entries] of Object.entries(translated.hooks)) {
+    hooks[event] = [...entries, ...(preserved[event] || [])];
+  }
+  const content = Buffer.from(`${JSON.stringify({ ...existing, version: 1, hooks }, null, 2)}\n`);
+  return {
+    runtime: 'copilot',
+    status: 'project_local_hooks',
+    proposed_effects: [
+      fileProposal(
+        'copilot',
+        'machine-local-hooks',
+        target,
+        settingsRelative,
+        content,
+        'owned',
+        fs.existsSync(settingsPath) ? 'restore_preimage_if_exact' : 'delete_if_exact',
+      ),
+    ],
+  };
+}
+
 function plannableProjectionEffects(projections) {
   return projections.flatMap((projection) => projection.proposed_effects)
     .filter((effect) => ['create', 'replace'].includes(effect.action));
 }
 
 module.exports = Object.freeze({
-  plannableProjectionEffects, proposeClaudeProjection, proposeCodexProjection,
+  plannableProjectionEffects, proposeClaudeProjection, proposeCodexProjection, proposeCopilotProjection,
 });

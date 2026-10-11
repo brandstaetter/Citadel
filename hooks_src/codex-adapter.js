@@ -8,7 +8,11 @@ const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const { normalizeCodexHookInput } = require('../runtimes/codex/adapters/hook-input');
-const { toLegacyHookPayload } = require('../core/hooks/hook-context');
+const {
+  extractApplyPatchTargets,
+  parseApplyPatchOperations,
+  projectLegacyPayloads,
+} = require('../core/hooks/project-legacy-payloads');
 
 const SECURITY_HOOKS = new Set(['protect-files', 'external-action-gate']);
 
@@ -84,52 +88,6 @@ function failureResult(hookName, reason, error = null) {
   };
 }
 
-function parseApplyPatchOperations(command) {
-  if (typeof command !== 'string' || !command.trim()) {
-    throw new TypeError('apply_patch tool_input.command must be a non-empty string');
-  }
-  if (!/^\*\*\* Begin Patch\s*$/m.test(command) || !/^\*\*\* End Patch\s*$/m.test(command)) {
-    throw new TypeError('apply_patch command is missing patch boundaries');
-  }
-
-  const operations = [];
-  const seen = new Set();
-  for (const line of command.split(/\r?\n/)) {
-    const fileMatch = /^\*\*\* (Add|Update|Delete) File:\s*(.+?)\s*$/.exec(line);
-    const moveMatch = /^\*\*\* Move to:\s*(.+?)\s*$/.exec(line);
-    const match = fileMatch || moveMatch;
-    if (!match) continue;
-    let target = (fileMatch ? fileMatch[2] : moveMatch[1]).trim();
-    if ((target.startsWith('"') && target.endsWith('"'))
-      || (target.startsWith("'") && target.endsWith("'"))) {
-      target = target.slice(1, -1);
-    }
-    if (!target) throw new TypeError('apply_patch contains an empty target path');
-    const toolName = fileMatch?.[1] === 'Add' || moveMatch ? 'Write' : 'Edit';
-    const signature = `${toolName}\0${target}`;
-    if (!seen.has(signature)) {
-      seen.add(signature);
-      operations.push({ filePath: target, toolName });
-    }
-  }
-
-  if (operations.length === 0) {
-    throw new TypeError('apply_patch command contains no target paths');
-  }
-  return operations;
-}
-
-function extractApplyPatchTargets(command) {
-  const targets = [];
-  const seen = new Set();
-  for (const operation of parseApplyPatchOperations(command)) {
-    if (seen.has(operation.filePath)) continue;
-    seen.add(operation.filePath);
-    targets.push(operation.filePath);
-  }
-  return targets;
-}
-
 function validateSecurityEnvelope(hookName, payload, envelope) {
   if (payload.hook_event_name !== 'PreToolUse') {
     throw new TypeError('security hooks require hook_event_name PreToolUse');
@@ -167,34 +125,6 @@ function validateSecurityEnvelope(hookName, payload, envelope) {
       throw new TypeError('protect-files requires a target path');
     }
   }
-}
-
-function projectLegacyPayloads(envelope, hookName) {
-  const legacy = {
-    ...(envelope.raw || {}),
-    ...toLegacyHookPayload(envelope),
-  };
-  if (envelope.tool_name !== 'apply_patch') {
-    return [legacy];
-  }
-
-  const projectRoot = typeof envelope.cwd === 'string' && envelope.cwd.trim()
-    ? path.resolve(envelope.cwd)
-    : path.resolve(process.env.CLAUDE_PROJECT_DIR || process.cwd());
-
-  return parseApplyPatchOperations(envelope.tool_input?.command).map(({ filePath, toolName }) => {
-    const projectedPath = path.isAbsolute(filePath)
-      ? path.normalize(filePath)
-      : path.resolve(projectRoot, filePath);
-    return {
-      ...legacy,
-      tool_name: toolName,
-      tool_input: {
-        ...legacy.tool_input,
-        file_path: projectedPath,
-      },
-    };
-  });
 }
 
 function dispatchHook(hookName, input, options = {}) {

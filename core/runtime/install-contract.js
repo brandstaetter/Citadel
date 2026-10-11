@@ -23,6 +23,7 @@ const MACHINE_LOCAL_PATTERNS = Object.freeze([
   '.claude/settings.local.json',
   '.claude/agent-context/',
   '.claude/worktrees/',
+  '.github/copilot/settings.local.json',
   '.codex/',
   '.agents/',
   '.opencode/',
@@ -422,6 +423,26 @@ function inspectInstallInventory(projectRoot, options = {}) {
       });
     });
     addGenerated('.codex/hooks.json', 'codex', 'citadel:codex-hooks', codexHooks);
+  }
+
+  const copilotSettings = readJson(path.join(root, '.github', 'copilot', 'settings.local.json'), fileSystem);
+  if (copilotSettings) {
+    walkStrings(copilotSettings.hooks || {}, (value, location) => {
+      if (!/copilot-adapter|hooks_src[\\/]/i.test(value)) return;
+      addRegistration({
+        runtime: 'copilot',
+        surface: 'hooks',
+        path: '.github/copilot/settings.local.json',
+        root: parseCitadelRoot(value),
+        source: location,
+      });
+    });
+    addGenerated(
+      '.github/copilot/settings.local.json',
+      'copilot',
+      'citadel:copilot-hooks',
+      copilotSettings,
+    );
   }
 
   const opencodeStubPath = path.join(root, '.opencode', 'plugin', 'citadel.js');

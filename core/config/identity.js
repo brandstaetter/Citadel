@@ -24,6 +24,7 @@ const INSTALLATION_SOURCE_FILES = Object.freeze([
   'core/runtime/detect-runtime.js',
   'core/runtime/registry.js',
   'runtimes/claude-code/runtime.js',
+  'runtimes/copilot/runtime.js',
   'runtimes/codex/runtime.js',
   'runtimes/openai/runtime.js',
   'runtimes/opencode/runtime.js',

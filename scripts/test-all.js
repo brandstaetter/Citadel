@@ -74,6 +74,7 @@ const MOMENTUM_WATCHER_TEST = path.join(PLUGIN_ROOT, 'scripts', 'test-momentum-w
 const POLICY_TEST = path.join(PLUGIN_ROOT, 'scripts', 'test-policy-core.js');
 const CLAUDE_RUNTIME_TEST = path.join(PLUGIN_ROOT, 'scripts', 'test-claude-runtime.js');
 const CODEX_RUNTIME_TEST = path.join(PLUGIN_ROOT, 'scripts', 'test-codex-runtime.js');
+const COPILOT_RUNTIME_TEST = path.join(PLUGIN_ROOT, 'scripts', 'test-copilot-runtime.js');
 const CODEX_NATIVE_INTEGRATION_TEST = path.join(PLUGIN_ROOT, 'scripts', 'test-codex-native-integrations.js');
 const CODEX_OPERATIONAL_IMPROVEMENT_TEST = path.join(PLUGIN_ROOT, 'scripts', 'test-codex-operational-improvements.js');
 const INSTALLER_TEST = path.join(PLUGIN_ROOT, 'scripts', 'test-installers.js');
@@ -344,6 +345,7 @@ const momentumWatcherPassed = run('Momentum Watcher Check', MOMENTUM_WATCHER_TES
 const policyPassed = run('Policy Core Check', POLICY_TEST);
 const claudeRuntimePassed = run('Claude Runtime Check', CLAUDE_RUNTIME_TEST);
 const codexRuntimePassed = run('Codex Runtime Check', CODEX_RUNTIME_TEST);
+const copilotRuntimePassed = run('Copilot Runtime Check', COPILOT_RUNTIME_TEST);
 const codexNativeIntegrationPassed = run('Codex Native Integration Check', CODEX_NATIVE_INTEGRATION_TEST);
 const codexOperationalImprovementPassed = run('Codex Operational Improvement Check', CODEX_OPERATIONAL_IMPROVEMENT_TEST);
 const installerPassed = run('Installer Check', INSTALLER_TEST);
@@ -440,6 +442,7 @@ console.log(`  Momentum watcher:   ${momentumWatcherPassed ? 'PASS' : 'FAIL'}`);
 console.log(`  Policy core:        ${policyPassed ? 'PASS' : 'FAIL'}`);
 console.log(`  Claude runtime:     ${claudeRuntimePassed ? 'PASS' : 'FAIL'}`);
 console.log(`  Codex runtime:      ${codexRuntimePassed ? 'PASS' : 'FAIL'}`);
+console.log(`  Copilot runtime:    ${copilotRuntimePassed ? 'PASS' : 'FAIL'}`);
 console.log(`  Codex native:       ${codexNativeIntegrationPassed ? 'PASS' : 'FAIL'}`);
 console.log(`  Codex operational:  ${codexOperationalImprovementPassed ? 'PASS' : 'FAIL'}`);
 console.log(`  Installers:         ${installerPassed ? 'PASS' : 'FAIL'}`);
@@ -486,7 +489,7 @@ for (const [label, passed] of unlockResults) {
 }
 console.log('');
 
-if (hooksPassed && securityPassed && contractsPassed && operationsProtocolPassed && appContractsPassed && supervisorClientPassed && runtimeRegistryPassed && runtimeMatrixPassed && hookEventsPassed && opencodeAdapterPassed && opencodeInstallPassed && opencodeSkillCommandPassed && skillsPassed && demoPassed && telemetryPassed && telemetryIntegrityPassed && memoryBlockPassed && repositoryMemoryPassed && evidenceContractPassed && sandboxProviderPassed && skillPackagingPassed && mapSubstratePassed && deliveryPassed && deliveryPackagePassed && continueActionPassed && nextActionPassed && routePreviewPassed && loopsPassed && operatingProofPassed && usefulnessTrialPassed && operatorConsolePassed && operatorJourneyPassed && firstUseOperatorPassed && verificationPlanPassed && prReadyPassed && stackPlanPassed && deployStewardPassed && agentsMdOnlyStewardPassed && coordinationPassed && hookInstallerPassed && campaignPassed && discoveryPassed && discoveryWriterPassed && momentumPassed && momentumWatcherPassed && policyPassed && claudeRuntimePassed && codexRuntimePassed && codexNativeIntegrationPassed && codexOperationalImprovementPassed && installerPassed && cliPackagePassed && projectBootstrapPassed && compatFixturePassed && backwardCompatPassed && costTrackerPassed && dashboardPassed && docSyncPassed && agentsMdGuidancePassed && fleetSessionPassed && worktreeReadinessPassed && postEditTypecheckPassed && routingSyncPassed && watchDedupPassed && teammateRebalancePassed && docSurfacesPassed && siteStoryPassed && telemetryOtlpPassed && stateHygienePassed && permissionAuditPassed && secretsLensPassed && qualityGatePassed && dashboardWebPassed && dashboardPerfPassed && dashboardVisualPassed && noopDetectPassed && releaseIntegrityPassed && activationTelemetryPassed && activationCohortPassed && githubTrafficSnapshotPassed && goldenPathPassed && goldenPathMatrixPassed && productBenchmarkPassed && productProofCohortPassed && sarifCoordinatesPassed && ecosystemCompatPassed && productProofReportPassed && unlockSuitePassed && upgradeSafetyPassed && sessionSafetyPassed && unattendedSafetyPassed) {
+if (hooksPassed && securityPassed && contractsPassed && operationsProtocolPassed && appContractsPassed && supervisorClientPassed && runtimeRegistryPassed && runtimeMatrixPassed && hookEventsPassed && opencodeAdapterPassed && opencodeInstallPassed && opencodeSkillCommandPassed && skillsPassed && demoPassed && telemetryPassed && telemetryIntegrityPassed && memoryBlockPassed && repositoryMemoryPassed && evidenceContractPassed && sandboxProviderPassed && skillPackagingPassed && mapSubstratePassed && deliveryPassed && deliveryPackagePassed && continueActionPassed && nextActionPassed && routePreviewPassed && loopsPassed && operatingProofPassed && usefulnessTrialPassed && operatorConsolePassed && operatorJourneyPassed && firstUseOperatorPassed && verificationPlanPassed && prReadyPassed && stackPlanPassed && deployStewardPassed && agentsMdOnlyStewardPassed && coordinationPassed && hookInstallerPassed && campaignPassed && discoveryPassed && discoveryWriterPassed && momentumPassed && momentumWatcherPassed && policyPassed && claudeRuntimePassed && codexRuntimePassed && copilotRuntimePassed && codexNativeIntegrationPassed && codexOperationalImprovementPassed && installerPassed && cliPackagePassed && projectBootstrapPassed && compatFixturePassed && backwardCompatPassed && costTrackerPassed && dashboardPassed && docSyncPassed && agentsMdGuidancePassed && fleetSessionPassed && worktreeReadinessPassed && postEditTypecheckPassed && routingSyncPassed && watchDedupPassed && teammateRebalancePassed && docSurfacesPassed && siteStoryPassed && telemetryOtlpPassed && stateHygienePassed && permissionAuditPassed && secretsLensPassed && qualityGatePassed && dashboardWebPassed && dashboardPerfPassed && dashboardVisualPassed && noopDetectPassed && releaseIntegrityPassed && activationTelemetryPassed && activationCohortPassed && githubTrafficSnapshotPassed && goldenPathPassed && goldenPathMatrixPassed && productBenchmarkPassed && productProofCohortPassed && sarifCoordinatesPassed && ecosystemCompatPassed && productProofReportPassed && unlockSuitePassed && upgradeSafetyPassed && sessionSafetyPassed && unattendedSafetyPassed) {
   console.log(suiteSuccessMessage(dashboardPerfStatus));
   console.log('Next steps:');
   console.log('  node scripts/skill-bench.js --list      see benchmark scenarios');
@@ -620,6 +623,7 @@ if (!momentumWatcherPassed) console.log('Momentum watcher check failed. Fix mome
 if (!policyPassed) console.log('Policy core check failed. Fix policy regressions before shipping.');
 if (!claudeRuntimePassed) console.log('Claude runtime check failed. Fix runtime adapter regressions before shipping.');
 if (!codexRuntimePassed) console.log('Codex runtime check failed. Fix runtime adapter regressions before shipping.');
+if (!copilotRuntimePassed) console.log('Copilot runtime check failed. Fix runtime adapter regressions before shipping.');
 if (!codexNativeIntegrationPassed) console.log('Codex native integration check failed. Fix Codex bridge scripts, MCP, plugin, or docs before shipping.');
 if (!codexOperationalImprovementPassed) console.log('Codex operational improvement check failed. Fix readiness, review ingestion, artifacts, or app-server event summarization before shipping.');
 if (!installerPassed) console.log('Installer check failed. Fix Claude/Codex installer regressions before shipping.');

@@ -12,6 +12,8 @@ const VALID_RUNTIMES = Object.freeze(listRuntimeIds().concat('openai'));
 const RUNTIME_ALIASES = Object.freeze({
   claude: 'claude-code',
   'claude-code': 'claude-code',
+  copilot: 'copilot',
+  'github-copilot': 'copilot',
   codex: 'codex',
   openai: 'openai',
   responses: 'openai',
@@ -23,6 +25,7 @@ const RUNTIME_ALIASES = Object.freeze({
 
 const PROCESS_TREE_MARKERS = Object.freeze([
   ['opencode', 'opencode'],
+  ['copilot', 'copilot'],
   ['codex', 'codex'],
   ['claude', 'claude-code'],
 ]);
@@ -55,7 +58,7 @@ function runtimeError(code, candidates = [], projectRoot = process.cwd(), option
     return new RuntimeDetectionError(
       code,
       'CITADEL_RUNTIME is unsupported (' + (candidates[0] || 'empty') + '). '
-        + 'Set it to claude-code, codex, opencode, or openai.',
+        + 'Set it to claude-code, copilot, codex, opencode, or openai.',
       candidates,
       projectRoot,
       options,

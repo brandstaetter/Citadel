@@ -8,6 +8,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 const config = require('../core/config');
 const codexRuntime = require('../runtimes/codex/runtime');
+const copilotRuntime = require('../runtimes/copilot/runtime');
 const claudeRuntime = require('../runtimes/claude-code/runtime');
 
 let passed = 0;
@@ -251,6 +252,17 @@ test('partial runtime support is unavailable without opt-in and degraded with op
   assert.equal(allowed.status, 'degraded');
   assert(allowed.bundles.effective.includes('parallel'));
   assert(allowed.bundles.degraded.some((entry) => entry.adapter));
+});
+
+test('Copilot uses managed adapters for parallel, operations, and delivery bundles', () => {
+  const receipt = config.resolveConfig(v2WithBundles(['parallel', 'delivery'], true), {
+    runtime: copilotRuntime,
+  });
+  assert.equal(receipt.status, 'degraded');
+  for (const bundle of ['parallel', 'operations', 'delivery']) {
+    assert(receipt.bundles.effective.includes(bundle), `${bundle} must remain effective`);
+    assert(receipt.bundles.degraded.some((entry) => entry.id === bundle && entry.adapter));
+  }
 });
 
 test('missing runtime capability makes a bundle unavailable', () => {

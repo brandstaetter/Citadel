@@ -20,6 +20,7 @@ const UNKNOWN_LOCAL_RUNTIME = Object.freeze({
 function runtimeContract(runtimeId) {
   const id = normalizeRuntimeId(runtimeId);
   if (id === 'codex') return require('../../runtimes/codex/runtime');
+  if (id === 'copilot') return require('../../runtimes/copilot/runtime');
   if (id === 'claude-code') return require('../../runtimes/claude-code/runtime');
   if (id === 'openai') return require('../../runtimes/openai/runtime');
   if (id === 'opencode') return require('../../runtimes/opencode/runtime');

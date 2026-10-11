@@ -19,6 +19,8 @@
 
 'use strict';
 
+process.env.CITADEL_RUNTIME ||= 'claude-code';
+
 const { execFileSync, spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');

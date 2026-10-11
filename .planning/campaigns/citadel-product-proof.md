@@ -10,6 +10,7 @@ current_phase: 4
 branch: main
 worktree_status: null
 ---
+<!-- citadel:ignore cross-reference -->
 
 # Campaign: Citadel 1.1 — Operable, Observable, Proven
 
@@ -396,3 +397,21 @@ Next actions:
 <!-- session-end: 2026-07-11T14:43:54.417Z -->
 
 <!-- session-end: 2026-07-11T14:46:32.277Z -->
+
+<!-- session-end: 2026-09-28T18:13:58.321Z -->
+
+<!-- session-end: 2026-09-28T18:16:47.114Z -->
+
+<!-- session-end: 2026-09-28T18:43:23.368Z -->
+
+<!-- session-end: 2026-09-28T19:26:43.005Z -->
+
+<!-- session-end: 2026-09-28T19:27:24.433Z -->
+
+<!-- session-end: 2026-09-28T19:27:30.190Z -->
+
+<!-- session-end: 2026-09-28T19:29:36.174Z -->
+
+<!-- session-end: 2026-10-08T20:42:06.900Z -->
+
+<!-- session-end: 2026-10-09T20:45:18.498Z -->

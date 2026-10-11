@@ -315,6 +315,8 @@ try {
     'release-files.json', 'package.json', 'bin/citadel.js',
     'scripts/install.js', 'scripts/adopt.js', 'scripts/update.js', 'scripts/unharness.js',
     'core/cli/package-cli.js', 'runtimes/codex/hooks.json', 'runtimes/claude-code/runtime.js',
+    'runtimes/copilot/runtime.js', 'scripts/copilot-install.js', 'scripts/copilot-readiness-check.js',
+    'plugin.json', '.github/plugin/marketplace.json', 'com.github.copilot/hooks/hooks.json',
     'core/skills/routing.js', 'core/skills/routing-table.json', 'scripts/route-preview.js',
     'mcp-servers/codebase-memory/index.js',
     'skills/do/SKILL.md', 'hooks_src/init-project.js', 'docs/CLI.md', 'docs/RELEASES.md',

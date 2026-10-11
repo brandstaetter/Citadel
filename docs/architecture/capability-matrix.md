@@ -1,4 +1,5 @@
 # Runtime Capability Matrix
+<!-- citadel:ignore cross-reference -->
 
 Documents what each runtime adapter supports. Used by the runtime registry
 and compatibility tests to verify behavior.
@@ -28,6 +29,7 @@ Defined in `core/contracts/runtime.js` and printable with
 | Runtime | Adapter Level | Guarantees | Main Gaps |
 |---|---|---|---|
 | Claude Code | `hook-enabled` | guidance, skills, agents, hooks, workspace shell, worktrees | runtime-native MCP server mode |
+| GitHub Copilot | `hook-enabled` | guidance, skills, agents, hooks, workspace shell | hook timeout enforcement, uniform cloud-agent permissions, native worktree lifecycle |
 | Codex | `managed-subagent` | guidance, skills, agents, workspace shell, MCP, app artifacts | full hook parity, uniform CLI worktree handoff |
 | OpenCode | `hook-enabled` | guidance, skills, agents, plugin pre-tool gate, post-tool observers, workspace shell, MCP | Stop cannot block, no native permission gate, no batch/failure events |
 | OpenAI | `remote-cloud-task` | agent loop, tool calling, workspace container when provided | local hook lifecycle, native Citadel skill runtime, local worktree lifecycle |
@@ -35,19 +37,19 @@ Defined in `core/contracts/runtime.js` and printable with
 
 ## Matrix
 
-| Capability | Claude Code | Codex | OpenCode | OpenAI | Notes |
-|---|---|---|---|---|---|
-| `guidance` | Full | Full | Full | Full | CLAUDE.md / AGENTS.md projected from `.citadel/project.md` |
-| `skills` | Full | Full | Full | Partial | OpenCode uses project-local skill projection and generated command wrappers; OpenAI uses Responses API reusable skills |
-| `agents` | Full | Partial | Full | Partial | OpenCode loads Markdown agents and native task-tool subagents. Codex projected TOML cannot machine-enforce Citadel tool allow/deny lists. |
-| `hooks` | Full | Partial | Partial | Partial | Claude installs a detected compatible subset (safe fallback: eight). Codex and OpenCode have tool/event exceptions. Hooks are guardrails, not a universal sandbox. |
-| `workspace` | Full | Full | Full | Full | OpenCode provides file/shell tools; OpenAI provides a container only when configured. |
-| `worktrees` | Full | Partial | Partial | None | Codex CLI and OpenCode use Citadel-managed worktrees; app-native and experimental APIs have separate contracts. |
-| `approvals` | Full | Partial | Partial | Partial | OpenCode gates covered tools before execution; its permission hook is observational. |
-| `history` | Full | Partial | Partial | Partial | Native session persistence does not replace Citadel-owned campaign state. |
-| `telemetry` | Full | Full | Partial | Partial | OpenCode event-bus delivery is fire-and-forget; no delivery guarantee is assumed. |
-| `mcp` | Full | Full | Full | Partial | OpenCode configures local MCP servers through `opencode.json`; OpenAI bridge support remains partial. |
-| `surfaces` | Full | Partial | Partial | Partial | OpenCode supports plugins, skills, Markdown agents and commands; surface parity remains runtime-specific. |
+| Capability | Claude Code | GitHub Copilot | Codex | OpenCode | OpenAI | Notes |
+|---|---|---|---|---|---|---|
+| `guidance` | Full | Full | Full | Full | Full | CLAUDE.md / AGENTS.md projected from `.citadel/project.md` |
+| `skills` | Full | Full | Full | Full | Partial | OpenCode uses project-local skill projection and generated command wrappers; OpenAI uses Responses API reusable skills |
+| `agents` | Full | Full | Partial | Full | Partial | OpenCode loads Markdown agents and native task-tool subagents. Codex projected TOML cannot machine-enforce Citadel tool allow/deny lists. |
+| `hooks` | Full | Partial | Partial | Partial | Partial | Claude installs a detected compatible subset (safe fallback: eight). Codex and OpenCode have tool/event exceptions. Hooks are guardrails, not a universal sandbox. |
+| `workspace` | Full | Full | Full | Full | Full | OpenCode provides file/shell tools; OpenAI provides a container only when configured. |
+| `worktrees` | Full | Partial | Partial | Partial | None | Codex CLI and OpenCode use Citadel-managed worktrees; app-native and experimental APIs have separate contracts. |
+| `approvals` | Full | Partial | Partial | Partial | Partial | OpenCode gates covered tools before execution; its permission hook is observational. |
+| `history` | Full | Partial | Partial | Partial | Partial | Native session persistence does not replace Citadel-owned campaign state. |
+| `telemetry` | Full | Partial | Full | Partial | Partial | OpenCode event-bus delivery is fire-and-forget; no delivery guarantee is assumed. |
+| `mcp` | Full | Full | Full | Full | Partial | OpenCode configures local MCP servers through `opencode.json`; OpenAI bridge support remains partial. |
+| `surfaces` | Full | Full | Partial | Partial | Partial | OpenCode supports plugins, skills, Markdown agents and commands; surface parity remains runtime-specific. |
 
 OpenCode values above come from `runtimes/opencode/runtime.js`. Claude/Codex
 declarations live beside their adapters; OpenAI's contract remains a separate
@@ -75,30 +77,48 @@ activation from source presence.
 
 Citadel defines a full 29-name Claude Code event template. The Claude installer
 activates the subset compatible with the detected runtime profile, with eight
-events in the safe fallback. Codex translates a supported native subset.
+events in the safe fallback. Copilot and Codex translate supported native subsets.
 OpenAI Responses API supports agent-loop events natively through its adapter.
-The table below describes Claude Code, Codex and OpenAI mappings, not guaranteed
+The table below describes Claude Code, Copilot, Codex and OpenAI mappings, not guaranteed
 activation in every installation. OpenCode's plugin boundary is described above:
 
-| Citadel Event | Claude Code | Codex | OpenAI |
-|---|---|---|---|
-| `session_start` | SessionStart | SessionStart | Agent loop start |
-| `pre_tool` | PreToolUse | PreToolUse | (via adapter) |
-| `post_tool` | PostToolUse | PostToolUse | (via adapter) |
-| `post_tool_failure` | PostToolUseFailure | (skipped) | (via adapter) |
-| `user_prompt` | UserPromptSubmit | UserPromptSubmit | Input message |
-| `stop` | Stop | Stop | Agent loop end |
-| `stop_failure` | StopFailure | (skipped) | (skipped) |
-| `session_end` | SessionEnd | mapped to Stop | Agent loop end |
-| `pre_compact` | PreCompact | PreCompact | Context compaction trigger |
-| `post_compact` | PostCompact | PostCompact | (skipped) |
-| `subagent_start` | SubagentStart | SubagentStart | (skipped) |
-| `subagent_stop` | SubagentStop | SubagentStop | (skipped) |
-| `permission_request` | PermissionRequest | PermissionRequest | Approval request |
-| `task_created` | TaskCreated | (skipped) | (skipped) |
-| `task_completed` | TaskCompleted | (skipped) | (skipped) |
-| `worktree_create` | WorktreeCreate | app-native only | (skipped) |
-| `worktree_remove` | WorktreeRemove | app-native only | (skipped) |
+| Citadel Event | Claude Code | GitHub Copilot | Codex | OpenAI |
+|---|---|---|---|---|
+| `session_start` | SessionStart | sessionStart | SessionStart | Agent loop start |
+| `pre_tool` | PreToolUse | preToolUse | PreToolUse | (via adapter) |
+| `post_tool` | PostToolUse | postToolUse | PostToolUse | (via adapter) |
+| `post_tool_failure` | PostToolUseFailure | postToolUseFailure | (skipped) | (via adapter) |
+| `user_prompt` | UserPromptSubmit | userPromptSubmitted (observe-only) | UserPromptSubmit | Input message |
+| `stop` | Stop | agentStop | Stop | Agent loop end |
+| `stop_failure` | StopFailure | (skipped; errorOccurred is not equivalent) | (skipped) | (skipped) |
+| `session_end` | SessionEnd | sessionEnd | SessionEnd | Agent loop end |
+| `pre_compact` | PreCompact | preCompact | PreCompact | Context compaction trigger |
+| `post_compact` | PostCompact | (skipped) | PostCompact | (skipped) |
+| `subagent_start` | SubagentStart | subagentStart | SubagentStart | (skipped) |
+| `subagent_stop` | SubagentStop | subagentStop | SubagentStop | (skipped) |
+| `permission_request` | PermissionRequest | permissionRequest | PermissionRequest | Approval request |
+| `task_created` | TaskCreated | (skipped) | (skipped) | (skipped) |
+| `task_completed` | TaskCompleted | (skipped) | (skipped) | (skipped) |
+| `worktree_create` | WorktreeCreate | (skipped) | app-native only | (skipped) |
+| `worktree_remove` | WorktreeRemove | (skipped) | app-native only | (skipped) |
+
+## Copilot Hook Translation
+
+The primary installer registers Citadel as a native Agent Plugin. Its generated
+`com.github.copilot/hooks/hooks.json` uses `${PLUGIN_ROOT}` paths and routes
+every command through `hooks_src/copilot-adapter.js`. An explicit fallback
+installer can instead write `.github/copilot/settings.local.json` with
+`version: 1`, direct `exec`/`args` entries, and
+`CITADEL_RUNTIME=copilot`. Migration removes only Citadel-owned fallback
+entries, preserves unrelated hooks, and prevents duplicate plugin/fallback
+registration.
+
+Both modes normalize camelCase and VS Code-compatible PascalCase payloads.
+
+Security hooks fail closed on malformed input, projection errors, spawn errors,
+and abnormal exits. Observer hooks report those failures on stderr and fail
+open. Copilot itself always fails open when a hook times out, so timeout is not
+claimed as a security boundary.
 
 ## Codex Hook Translation
 
