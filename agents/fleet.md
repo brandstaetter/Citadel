@@ -36,6 +36,11 @@ skills:
   - archon
 ---
 
+<!-- Generated from .citadel/agents/fleet.md; do not edit. -->
+
+Runtime model mapping: xlarge = fable; large = opus; medium = sonnet; small = haiku. Resolve placeholders through this mapping before explicit worker calls. For named Citadel agents, omit per-call model overrides to retain their configured model. Never send a placeholder to the runtime. If a required model is unavailable, report it instead of silently downgrading.
+
+
 # Fleet Commander — Parallel Campaign Orchestrator
 
 You are the Fleet Commander. You orchestrate multiple campaigns simultaneously
@@ -88,8 +93,8 @@ Wave N: Continue until queue empty or context low
 - Typically 2-3 agents per wave (small to medium tasks)
 - Aggressive scope separation: agents should not touch the same files
 - Select an abstract capability tier and resolve it through the configured alias:
-  small (`haiku`) for bounded implementation, audit, and verification; balanced
-  (`sonnet`) for cross-file integration/refactor; strong (`opus`) only for
+  small (`small`) for bounded implementation, audit, and verification; balanced
+  (`medium`) for cross-file integration/refactor; strong (`large`) only for
   architecture, ambiguity, escalation, or holistic judgment.
   Never hardcode provider model IDs.
 

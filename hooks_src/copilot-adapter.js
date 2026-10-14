@@ -7,7 +7,7 @@ process.env.CITADEL_RUNTIME = 'copilot';
 const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
-const { normalizeCopilotHookInput } = require('../runtimes/copilot/adapters/hook-input');
+const { normalizeCopilotHookInputs } = require('../runtimes/copilot/adapters/hook-input');
 const { projectLegacyPayloads } = require('../core/hooks/project-legacy-payloads');
 
 const SECURITY_HOOKS = new Set(['protect-files', 'external-action-gate']);
@@ -89,15 +89,21 @@ function dispatchHook(hookName, configuredEventName, input, options = {}) {
     return failureResult(hookName, 'input must be a JSON object', null, configuredEventName);
   }
 
-  let envelope;
+  // A batched payload (toolCalls) yields one envelope per call. Security hooks
+  // validate every call before anything runs, and each call's projections are
+  // evaluated below, so one denied or unreadable call denies the whole batch.
+  let envelopes;
   let legacyPayloads;
   try {
-    envelope = normalizeCopilotHookInput(payload, configuredEventName);
-    if (isSecurityHook(hookName)) validateSecurityEnvelope(hookName, envelope);
-    legacyPayloads = projectLegacyPayloads(envelope);
+    envelopes = normalizeCopilotHookInputs(payload, configuredEventName);
+    if (isSecurityHook(hookName)) {
+      for (const candidate of envelopes) validateSecurityEnvelope(hookName, candidate);
+    }
+    legacyPayloads = envelopes.flatMap((candidate) => projectLegacyPayloads(candidate));
   } catch (error) {
     return failureResult(hookName, 'input projection failed', error, configuredEventName);
   }
+  const envelope = envelopes[0];
 
   const projectRoot = typeof envelope.cwd === 'string' && envelope.cwd.trim()
     ? path.resolve(envelope.cwd)
@@ -273,6 +279,16 @@ function translateOutput(nativeEventName, stdout) {
   return { output: null, diagnostic: parsed.text };
 }
 
+// Outputs from several projections (apply_patch targets, batched toolCalls)
+// must not let a later permissive decision overwrite an earlier restrictive
+// one. For each decision field the most restrictive value wins, together with
+// the reason or message that came with it.
+const DECISION_FIELDS = Object.freeze([
+  { key: 'permissionDecision', rank: { allow: 0, ask: 1, deny: 2 }, companions: ['permissionDecisionReason'] },
+  { key: 'behavior', rank: { allow: 0, deny: 1 }, companions: ['message', 'interrupt'] },
+  { key: 'decision', rank: { allow: 0, block: 1 }, companions: ['reason'] },
+]);
+
 function mergeOutputs(outputs) {
   if (outputs.length === 0) return null;
   const merged = {};
@@ -282,6 +298,19 @@ function mergeOutputs(outputs) {
       contexts.push(output.additionalContext);
     }
     Object.assign(merged, output);
+  }
+  for (const { key, rank, companions } of DECISION_FIELDS) {
+    let winner = null;
+    for (const output of outputs) {
+      if (!(output[key] in rank)) continue;
+      if (!winner || rank[output[key]] > rank[winner[key]]) winner = output;
+    }
+    if (!winner) continue;
+    merged[key] = winner[key];
+    for (const companion of companions) {
+      if (companion in winner) merged[companion] = winner[companion];
+      else delete merged[companion];
+    }
   }
   if (contexts.length) merged.additionalContext = contexts.join('\n\n');
   return merged;

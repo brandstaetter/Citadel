@@ -2,7 +2,7 @@
 
 'use strict';
 
-// Projects Citadel's canonical agents/*.md into .opencode/agent/*.md.
+// Projects Citadel's canonical .citadel/agents/*.md into .opencode/agent/*.md.
 //
 // opencode's agent loader (config/agent.ts) globs {agent,agents}/**/*.md, takes
 // the agent NAME FROM THE FILE PATH rather than frontmatter, and uses the
@@ -153,7 +153,7 @@ function renderOpencodeAgent(parsedAgent, options = {}) {
   const frontmatter = [
     '---',
     `# ${GENERATED_HEADER}`,
-    `# Source: agents/${name}.md`,
+    `# Source: .citadel/agents/${name}.md`,
     `description: ${yamlString(description)}`,
     `mode: ${SUBAGENT_MODE}`,
   ];
@@ -181,7 +181,7 @@ function projectOpencodeAgents(options = {}) {
   const projectRoot = options.projectRoot || process.cwd();
   const dryRun = options.dryRun === true;
 
-  const sourceBase = path.join(citadelRoot, 'agents');
+  const sourceBase = path.join(citadelRoot, '.citadel', 'agents');
   const targetBase = path.join(projectRoot, '.opencode', 'agent');
   const agentFiles = options.agentName
     ? [`${options.agentName}.md`]

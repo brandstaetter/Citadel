@@ -227,6 +227,81 @@ native plugin while preserving project state and user-authored hooks.
 Copilot hook crashes fail closed for the two security gates, but Copilot hook
 timeouts fail open and are not a security boundary.
 
+#### Copilot subagent models
+
+Shared definitions live in `.citadel/agents/` and declare a model placeholder:
+`xlarge`, `large`, `medium`, or `small`. Model mappings are configured separately
+in `runtimes/claude-code/agent-settings.json`, `runtimes/copilot/agent-settings.json`,
+and `runtimes/codex/agent-settings.json`. Edit the appropriate runtime's `models`
+object to change a tier without editing individual agents or generator code.
+
+Archon/Fleet use `large`, the arbiter uses `xlarge`, and validators use `small`.
+Consult the runtime settings file for the current model IDs; all four placeholders
+are independently configurable. These model IDs must be available to your Copilot account. Named agent calls
+should omit a model override; explicit worker calls must resolve placeholders first.
+Copilot loads generated definitions from `com.github.copilot/agents/`, selected
+by root `plugin.json`. Claude loads the generated `agents/` directory.
+
+After updating the package, start a fresh Copilot session with its `--plugin-dir`
+pointing to the updated installation. In `/agents`, inspect `citadel:archon`:
+its model should match `models.large` in the Copilot settings file. If it still shows `opus`, check for a stale
+plugin path or a project/user agent override. See the
+[Copilot custom agent reference](https://docs.github.com/en/copilot/reference/copilot-cli-reference/cli-command-reference#custom-agents-reference).
+
+After editing shared definitions or mappings, run
+`node scripts/generate-runtime-agents.js --project-root <project>` in a writable
+source checkout. This generates Claude and Copilot plugin agents in the source
+checkout and Codex agents in `<project>/.codex/agents/`. The project defaults to
+the current directory. Use `--check` to verify all three projections without writing.
+The older Codex-only command `node scripts/generate-agent-projections.js --project-root <project>` remains available;
+existing Codex project model/effort overrides take precedence over runtime defaults.
+Release packaging regenerates plugin agents from the shipped definitions and settings.
+`node scripts/generate-copilot-plugin.js --check` verifies Copilot agents and hooks
+without writing to the installed source.
+
+#### Copilot interaction mode in a sandbox
+
+Stay in Copilot's standard interactive (manual) mode rather than switching to
+Copilot autopilot. For an isolated sandbox session where broad permissions are
+intended, enter `/allow-all` in Copilot chat, then run your Citadel commands.
+This grants Copilot tool, path, and URL permissions for the session; it does
+not remove the sandbox's filesystem or network restrictions.
+
+Autopilot with manual approval automatically denies requests that still need
+approval because no interactive response is available. If you are already in
+autopilot, press **Shift+Tab** to return to standard interactive mode before
+entering `/allow-all`. This concerns Copilot's interaction mode, not Citadel's
+`/autopilot` workflow. See [Copilot autopilot permissions](https://docs.github.com/en/copilot/concepts/agents/copilot-cli/autopilot).
+
+#### Enable the plain `/do` command
+
+If Copilot exposes the plugin router as `/citadel:do` but does not recognize
+`/do`, add a project-local forwarding skill at `.github/skills/do/SKILL.md`.
+Preserve any existing file at that path. Replace `/absolute/path/to/citadel`
+below with the installed Citadel root **as seen by Copilot** (for example,
+`/opt/agent-sandbox/citadel-local` in an AgentSandbox local-dev installation):
+
+```markdown
+---
+name: do
+description: Invoke the installed Citadel router.
+user-invocable: true
+---
+
+When invoked, load and follow /absolute/path/to/citadel/skills/do/SKILL.md.
+The Citadel plugin root is /absolute/path/to/citadel.
+Preserve the complete request following /do, including arguments, flags,
+quotes, and line breaks. Apply the canonical router's activation checks and
+routing instructions. Do not invoke this alias recursively. If the canonical
+skill is unavailable, report that error rather than inventing instructions.
+```
+
+Inside Copilot chat, run `/skills reload`, then test `/do status`.
+This alias needs only project write access: it neither modifies the installed
+Citadel source nor installs hooks. It also works when `/skills add` cannot
+persist its registration in a sandbox. `/citadel:do` remains available.
+The absolute path is machine-specific; update it if the installation moves.
+
 ### Claude Code compatibility installer
 
 From your target project root:

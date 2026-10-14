@@ -4,6 +4,9 @@
 
 const fs = require('fs');
 const path = require('path');
+const { loadRuntimeAgentSettings, MODEL_PLACEHOLDERS } = require('./runtime-settings');
+const RUNTIME_MODELS = loadRuntimeAgentSettings('codex').models;
+const LEGACY_TIERS = Object.freeze({ fable: 'xlarge', opus: 'large', sonnet: 'medium', haiku: 'small' });
 
 const CODEX_AGENT_EXTENSION = 'citadel.codex-agents';
 const CODEX_REASONING_EFFORTS = Object.freeze([
@@ -18,13 +21,11 @@ const MODEL_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:@/-]{0,127}$/;
 const AGENT_NAME_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
 
 const DEFAULT_CODEX_AGENT_CONFIG = Object.freeze({
-  defaultModel: 'gpt-5.6-terra',
+  defaultModel: RUNTIME_MODELS.medium,
   defaultReasoningEffort: 'high',
   modelAliases: Object.freeze({
-    fable: 'gpt-5.6-sol',
-    opus: 'gpt-5.6-sol',
-    sonnet: 'gpt-5.6-terra',
-    haiku: 'gpt-5.6-luna',
+    ...RUNTIME_MODELS,
+    ...Object.fromEntries(Object.entries(LEGACY_TIERS).map(([alias, tier]) => [alias, RUNTIME_MODELS[tier]])),
   }),
   agents: Object.freeze({}),
 });
@@ -68,6 +69,8 @@ function normalizeCodexAgentConfig(value = {}) {
     }
     assertModelId(model, `${CODEX_AGENT_EXTENSION}.modelAliases.${alias}`);
     modelAliases[alias] = model;
+    // Keep existing project alias overrides working after canonical tier migration.
+    if (LEGACY_TIERS[alias] && !(LEGACY_TIERS[alias] in aliases)) modelAliases[LEGACY_TIERS[alias]] = model;
   }
 
   const configuredAgents = value.agents ?? {};
@@ -115,6 +118,7 @@ function loadCodexAgentConfig(projectRoot) {
 
 function modelFamily(sourceModel) {
   const normalized = String(sourceModel || '').toLowerCase();
+  if (MODEL_PLACEHOLDERS.includes(normalized)) return normalized;
   for (const family of ['fable', 'opus', 'sonnet', 'haiku']) {
     if (normalized === family || normalized.includes(`-${family}-`)) return family;
   }

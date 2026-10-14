@@ -139,12 +139,10 @@ function withCodexAgentConfig(raw, args) {
 }
 
 function runtimeContract(runtimeId) {
-  if (runtimeId === 'codex') return require('../runtimes/codex/runtime');
-  if (runtimeId === 'opencode') return require('../runtimes/opencode/runtime');
-  if (runtimeId === 'claude' || runtimeId === 'claude-code') {
-    return require('../runtimes/claude-code/runtime');
-  }
-  if (runtimeId === 'openai') return require('../runtimes/openai/runtime');
+  // Share runtime names and aliases with automatic detection. Keep explicit
+  // unknown selections fail-closed rather than treating them as local work.
+  const runtime = config.runtimeContract(runtimeId);
+  if (runtime !== config.UNKNOWN_LOCAL_RUNTIME) return runtime;
   return { id: 'unknown', capabilities: {}, degradations: ['runtime-not-declared'] };
 }
 

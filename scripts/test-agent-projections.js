@@ -5,6 +5,9 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const assert = require('assert');
+const { validateRuntimeAgentSettings, loadRuntimeAgentSettings, resolveModel } = require('../core/agents/runtime-settings');
+const { run: generateRuntimeAgents } = require('./generate-runtime-agents');
 const config = require(path.join(__dirname, '..', 'core', 'config'));
 const { loadAgent } = require(path.join(__dirname, '..', 'core', 'agents', 'parse-agent'));
 const { renderCodexToml, projectAgentToCodex } = require(path.join(__dirname, '..', 'core', 'agents', 'project-agent'));
@@ -24,24 +27,63 @@ function fail(message) {
 }
 
 function main() {
-  const agentPath = path.join(__dirname, '..', 'agents', 'archon.md');
+  const root = path.resolve(__dirname, '..');
+  assert.equal(require('../runtimes/claude-code/generators/project-agents').writeClaudeAgents({ check: true }).changed, false);
+  assert.equal(require('../runtimes/copilot/generators/agents').writeCopilotPluginAgents({ check: true }).changed, false);
+  assert.throws(() => validateRuntimeAgentSettings({ models: { large: 'example-model' } }), /exactly/);
+  const copilotDefaults = loadRuntimeAgentSettings('copilot');
+  assert.throws(() => resolveModel('opus', copilotDefaults), /Unknown model placeholder/);
+  assert.throws(() => validateRuntimeAgentSettings({ models: { ...copilotDefaults.models, small: 'small' } }), /unresolved/);
+  const fixture = fs.mkdtempSync(path.join(os.tmpdir(), 'citadel-runtime-models-'));
+  try {
+    fs.cpSync(path.join(root, '.citadel/agents'), path.join(fixture, '.citadel/agents'), { recursive: true });
+    for (const runtime of ['claude-code', 'copilot']) {
+      fs.mkdirSync(path.join(fixture, 'runtimes', runtime), { recursive: true });
+      const settings = loadRuntimeAgentSettings(runtime);
+      fs.writeFileSync(path.join(fixture, 'runtimes', runtime, 'agent-settings.json'), JSON.stringify({
+        models: { ...settings.models, xlarge: `${runtime}-judge-model`, large: `${runtime}-worker-model` },
+      }));
+    }
+    const canonical = fs.readFileSync(path.join(fixture, '.citadel/agents/archon.md'), 'utf8');
+    assert.equal(generateRuntimeAgents({ citadelRoot: fixture, projectRoot: fixture, check: true }).ok, false);
+    assert.equal(fs.existsSync(path.join(fixture, 'agents')), false, 'check must not write');
+    assert.equal(fs.existsSync(path.join(fixture, '.codex')), false, 'Codex check must not write');
+    const generated = generateRuntimeAgents({ citadelRoot: fixture, projectRoot: fixture });
+    assert.equal(generated.results.codex.count, 7);
+    const codexAgent = path.join(fixture, '.codex/agents/archon.toml');
+    assert(fs.readFileSync(codexAgent, 'utf8').includes(`model = "${loadRuntimeAgentSettings('codex').models.large}"`));
+    assert.match(fs.readFileSync(path.join(fixture, 'agents/archon.md'), 'utf8'), /^model: claude-code-worker-model$/m);
+    assert.match(fs.readFileSync(path.join(fixture, 'agents/arbiter.md'), 'utf8'), /^model: claude-code-judge-model$/m);
+    assert.match(fs.readFileSync(path.join(fixture, 'com.github.copilot/agents/archon.agent.md'), 'utf8'), /^model: copilot-worker-model$/m);
+    assert.match(fs.readFileSync(path.join(fixture, 'com.github.copilot/agents/arbiter.agent.md'), 'utf8'), /^model: copilot-judge-model$/m);
+    assert.equal(fs.readFileSync(path.join(fixture, '.citadel/agents/archon.md'), 'utf8'), canonical);
+    assert.equal(generateRuntimeAgents({ citadelRoot: fixture, projectRoot: fixture, check: true }).ok, true);
+    fs.writeFileSync(codexAgent, 'stale');
+    const checked = generateRuntimeAgents({ citadelRoot: fixture, projectRoot: fixture, check: true });
+    assert.equal(checked.ok, false);
+    assert.deepEqual(checked.results.codex.changedPaths, [codexAgent]);
+    assert.equal(fs.readFileSync(codexAgent, 'utf8'), 'stale');
+  } finally { fs.rmSync(fixture, { recursive: true, force: true }); }
+  const agentPath = path.join(__dirname, '..', '.citadel', 'agents', 'archon.md');
   const parsed = loadAgent(agentPath);
   if (parsed.errors.length > 0) {
     fail(`Parsed agent has validation errors: ${parsed.errors.join('; ')}`);
   }
 
   const toml = renderCodexToml(parsed);
+  assert.match(renderCodexToml(parsed, { agentConfig: { modelAliases: { large: 'custom-codex-model' } } }), /model = "custom-codex-model"/);
+  assert.match(renderCodexToml(parsed, { agentConfig: { modelAliases: { opus: 'legacy-codex-model' } } }), /model = "legacy-codex-model"/);
   if (!toml.includes('name = "archon"')) {
     fail('Generated TOML is missing the expected agent name');
   }
-  if (!toml.includes('model = "gpt-5.6-sol"')) {
+  if (!toml.includes(`model = "${loadRuntimeAgentSettings('codex').models.large}"`)) {
     fail('Generated TOML is missing the expected model mapping');
   }
   if (!toml.includes('model_reasoning_effort = "high"')) {
     fail('Generated TOML is missing the expected reasoning effort');
   }
 
-  const reviewer = loadAgent(path.join(__dirname, '..', 'agents', 'arch-reviewer.md'));
+  const reviewer = loadAgent(path.join(__dirname, '..', '.citadel', 'agents', 'arch-reviewer.md'));
   const reviewerToml = renderCodexToml(reviewer);
   if (!reviewerToml.includes('does not machine-enforce Citadel tool allow/deny lists')
     || !reviewerToml.includes('Use only these declared tools: Read, Grep, Glob.')
@@ -49,7 +91,7 @@ function main() {
     fail('Restricted Codex projection did not disclose and preserve the canonical tool policy');
   }
 
-  const validator = loadAgent(path.join(__dirname, '..', 'agents', 'phase-validator.md'));
+  const validator = loadAgent(path.join(__dirname, '..', '.citadel', 'agents', 'phase-validator.md'));
   if (JSON.stringify(validator.frontmatter.tools) !== JSON.stringify(['Read'])
     || !validator.body.includes('Use at most one Read')
     || !validator.body.includes('do not do it')) {
@@ -77,10 +119,10 @@ function main() {
     fail('Runtime-neutral worker tiers or Marshal routing guidance is missing');
   }
 
-  const arbiter = loadAgent(path.join(__dirname, '..', 'agents', 'arbiter.md'));
+  const arbiter = loadAgent(path.join(__dirname, '..', '.citadel', 'agents', 'arbiter.md'));
   const arbiterToml = renderCodexToml(arbiter);
-  if (!arbiterToml.includes('model = "gpt-5.6-sol"')) {
-    fail('Current Claude Fable role did not map to Codex Sol');
+  if (!arbiterToml.includes(`model = "${loadRuntimeAgentSettings('codex').models.xlarge}"`)) {
+    fail('Arbiter did not use the configured Codex xlarge mapping');
   }
   if (!arbiterToml.includes('model_reasoning_effort = "max"')) {
     fail('Arbiter did not retain its current max effort default');

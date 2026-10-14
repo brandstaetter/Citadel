@@ -103,7 +103,7 @@ function normalizeRoutingInput(value) {
 }
 
 function stripDoPrefix(value) {
-  return String(value || '').trim().replace(/^\/do(?:\s+|$)/i, '').trim();
+  return String(value || '').trim().replace(/^(?:\/(?:citadel:)?do|\$citadel:do)(?:\s+|$)/i, '').trim();
 }
 
 function parseRequestEnvelope(value, options = {}) {

@@ -8,6 +8,9 @@ const os = require('os');
 const path = require('path');
 const zlib = require('zlib');
 const { execFileSync } = require('child_process');
+const { projectAgentEntries } = require('../runtimes/copilot/generators/agents');
+const { projectClaudeAgentEntries } = require('../runtimes/claude-code/generators/project-agents');
+const { validateRuntimeAgentSettings } = require('../core/agents/runtime-settings');
 
 const ROOT = path.resolve(__dirname, '..');
 const MANIFEST_NAME = '.citadel-release.json';
@@ -1293,9 +1296,22 @@ function buildRelease(options = {}) {
   const knownSkillNames = new Set(sourceEntries
     .map((entry) => /^skills\/([^/]+)\/SKILL\.md$/.exec(entry.name)?.[1])
     .filter(Boolean));
-  const entries = sanitizeReleaseRuntimeInstructions(sanitizeReleaseInstructions(sanitizeReleaseSkillCounts(sanitizeReleaseMetadata(
+  let entries = sanitizeReleaseRuntimeInstructions(sanitizeReleaseInstructions(sanitizeReleaseSkillCounts(sanitizeReleaseMetadata(
     sanitizeReleaseRouting(sanitizeReleaseBundleCatalog(sanitizeReleaseMcp(sanitizeReleaseCli(sanitizeReleasePackage(normalizeReleaseTextEntries(applyReleasePolicy(sourceEntries)))))))
   )), knownSkillNames));
+  // Project only shipped agents, after instruction sanitization. Installation is read-only.
+  const settingsFor = runtime => {
+    const entry = entries.find(item => item.name === `runtimes/${runtime}/agent-settings.json`);
+    if (!entry && !entries.some(item => item.name.startsWith('.citadel/agents/'))) return null;
+    if (!entry) throw new Error(`Missing agent settings for ${runtime}`);
+    return validateRuntimeAgentSettings(JSON.parse(entry.data.toString('utf8')));
+  };
+  const copilotSettings = settingsFor('copilot');
+  const claudeSettings = settingsFor('claude-code');
+  if (copilotSettings && claudeSettings) entries = [
+    ...entries.filter(entry => !entry.name.startsWith('com.github.copilot/agents/') && !entry.name.startsWith('agents/')),
+    ...projectAgentEntries(entries, copilotSettings), ...projectClaudeAgentEntries(entries, claudeSettings),
+  ].sort(compareNames);
   const identity = assertVersions(entries, ref);
   const commit = gitValue(['rev-parse', ref ? `${ref}^{commit}` : 'HEAD'], sourceDir, 'unknown');
   const epoch = Number(gitValue(['log', '-1', '--format=%ct', ref || 'HEAD'], sourceDir, '0')) || 0;

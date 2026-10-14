@@ -219,6 +219,7 @@ function testCodexInstallScript() {
       '--fallback',
       '--json',
     ], {
+      env: { ...process.env, CODEX_HOME: path.join(tmp, 'codex-home') },
       cwd: CITADEL_ROOT,
       stdio: 'pipe',
       encoding: 'utf8',

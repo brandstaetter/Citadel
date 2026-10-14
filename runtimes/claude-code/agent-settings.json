@@ -1,0 +1,8 @@
+{
+  "models": {
+    "xlarge": "fable",
+    "large": "opus",
+    "medium": "sonnet",
+    "small": "haiku"
+  }
+}

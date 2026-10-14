@@ -1,11 +1,11 @@
 'use strict';
 
 const {
-  mergeHookMaps,
   quoteNodeCommand,
-  readJson,
   writeJson,
 } = require('../../../core/hooks/install');
+const fs = require('fs');
+const { inspectCodexHookOwnership, assertUnambiguous } = require('./hook-ownership');
 const { filterHookTemplate } = require('../../../core/hooks/bundles');
 const {
   classifyOutputs,
@@ -140,57 +140,45 @@ function translateCodexPluginHooks(hooksTemplate) {
   });
 }
 
-function preserveUserHookHandlers(existingHooks, marker) {
-  const preserved = {};
-  for (const [event, entries] of Object.entries(existingHooks || {})) {
-    const eventEntries = [];
-    for (const entry of entries || []) {
-      if (!Array.isArray(entry.hooks)) {
-        eventEntries.push(entry);
-        continue;
-      }
-      const hooks = entry.hooks.filter((hook) =>
-        typeof hook.command !== 'string' || !hook.command.includes(marker)
-      );
-      if (hooks.length > 0) eventEntries.push({ ...entry, hooks });
-    }
-    if (eventEntries.length > 0) preserved[event] = eventEntries;
-  }
-  return preserved;
+function preserveUserHookHandlers(existingHooks, options) {
+  const ownership = inspectCodexHookOwnership(existingHooks, options);
+  assertUnambiguous(ownership);
+  return ownership.preserved;
 }
 
 function installCodexHooks(options = {}) {
-  const preserveMarker = 'codex-adapter';
   const projectRoot = options.projectRoot
     ? require('path').resolve(options.projectRoot)
     : options.outputPath
       ? require('path').resolve(options.outputPath, '..', '..')
       : process.cwd();
+  const existingConfig = options.outputPath && fs.existsSync(options.outputPath)
+    ? JSON.parse(fs.readFileSync(options.outputPath, 'utf8')) : {};
+  const ownership = inspectCodexHookOwnership(options.existingHooks || existingConfig.hooks || {}, options);
+  assertUnambiguous(ownership);
   const inventory = inspectInstallInventory(projectRoot, { runtime: 'codex' });
   const machineLocalExcludes = ensureMachineLocalExcludes(projectRoot, {
     dryRun: options.dryRun === true,
   });
-  const existingHooks = preserveUserHookHandlers(options.existingHooks || {}, preserveMarker);
+  const existingHooks = ownership.preserved;
   const translated = translateCodexHooks(options.hooksTemplate, options.adapterScriptPath, {
     effectiveBundles: options.effectiveBundles,
   });
-  const mergedHooks = mergeHookMaps({
-    existingHooks,
-    generatedHooks: translated.hooks,
-    preserveMarker,
-  });
+  // Ownership was decided per handler. Do not apply the old substring filter
+  // again: it would discard user commands or entire mixed entries.
+  const filteredHooks = { ...existingHooks };
+  for (const [event, entries] of Object.entries(translated.hooks)) {
+    filteredHooks[event] = [...entries, ...(existingHooks[event] || [])];
+  }
 
-  const filteredHooks = Object.fromEntries(
-    Object.entries(mergedHooks).filter(([event]) => CODEX_EVENTS.has(event))
-  );
-
-  if (options.outputPath) {
-    writeJson(options.outputPath, { hooks: filteredHooks });
+  if (options.outputPath && !options.dryRun) {
+    writeJson(options.outputPath, { ...existingConfig, hooks: filteredHooks });
   }
 
   return {
     ...translated,
     hooks: filteredHooks,
+    ownership,
     inventory,
     diagnostics: inventory.diagnostics,
     machineLocalExcludes,

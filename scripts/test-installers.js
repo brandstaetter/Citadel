@@ -23,6 +23,8 @@ const { installCodexHooks } = require('../runtimes/codex/generators/install-hook
 const { installCopilotHooks } = require('../runtimes/copilot/generators/install-hooks');
 
 const CITADEL_ROOT = path.resolve(__dirname, '..');
+const codexHome = fs.mkdtempSync(path.join(os.tmpdir(), 'citadel-installer-codex-home-'));
+process.on('exit', () => fs.rmSync(codexHome, { recursive: true, force: true }));
 
 function tempProject(prefix) {
   return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -30,6 +32,7 @@ function tempProject(prefix) {
 
 function runJson(args, cwd = CITADEL_ROOT) {
   const output = execFileSync(process.execPath, args, {
+    env: { ...process.env, CODEX_HOME: codexHome },
     cwd,
     encoding: 'utf8',
     stdio: 'pipe',

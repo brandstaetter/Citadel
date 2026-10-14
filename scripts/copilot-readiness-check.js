@@ -37,7 +37,22 @@ function hasLegacyClaudeConflict(projectRoot) {
   }
 }
 
-function collect(projectRoot) {
+function hookSourceCheck(pluginList, fallbackCount) {
+  const discovered = !pluginList.error && pluginList.status === 0;
+  const pluginInstalled = discovered && isCitadelPluginEnabled(pluginList.stdout);
+  const mode = pluginInstalled ? 'plugin' : fallbackCount > 0 ? 'project-fallback' : 'unverified';
+  return {
+    ...check('exactly one Copilot hook source active',
+      discovered && (pluginInstalled ? 1 : 0) + (fallbackCount > 0 ? 1 : 0) === 1,
+      `mode=${mode}; plugin=${discovered ? pluginInstalled : 'unknown'}; fallback registrations=${fallbackCount}. `
+      + (discovered ? 'Plugin listing does not establish live hook execution or exclude session-mounted plugins.'
+        : `Copilot discovery unavailable (${pluginList.error?.code || `exit ${pluginList.status}`}); use --copilot-executable with the CLI path. Do not install fallback hooks based on this result.`)),
+    mode,
+    discovery: discovered ? 'available' : 'unavailable',
+  };
+}
+
+function collect(projectRoot, options = {}) {
   const root = path.resolve(projectRoot);
   const checks = [];
   const settingsPath = path.join(root, '.github', 'copilot', 'settings.local.json');
@@ -46,32 +61,34 @@ function collect(projectRoot) {
   if (fs.existsSync(settingsPath)) {
     try {
       settings = JSON.parse(fs.readFileSync(settingsPath, 'utf8'));
-      validateCopilotConfig(settings);
+      // Migration may leave a settings envelope without any fallback hooks.
+      // Normalize only an absent field for validation; explicit malformed
+      // values must still fail, and the user's file remains untouched.
+      const validationSettings = settings && typeof settings === 'object'
+        && !Array.isArray(settings) && !Object.hasOwn(settings, 'hooks')
+        ? { ...settings, hooks: {} } : settings;
+      validateCopilotConfig(validationSettings);
     } catch (error) {
       settingsError = error.message;
     }
   }
   const fallbackCount = settingsError ? 0 : countCitadelHooks(settings?.hooks || {});
-  const pluginList = spawnSync('copilot', ['plugin', 'list'], {
+  const pluginList = spawnSync(options.copilotExecutable || 'copilot', ['plugin', 'list'], {
     cwd: root,
     encoding: 'utf8',
     stdio: ['ignore', 'pipe', 'pipe'],
     timeout: 30000,
   });
-  const pluginInstalled = pluginList.status === 0
-    && isCitadelPluginEnabled(pluginList.stdout);
-  const mode = pluginInstalled ? 'plugin' : fallbackCount > 0 ? 'project-fallback' : 'missing';
-  checks.push(check(
-    'exactly one Copilot hook source active',
-    (pluginInstalled ? 1 : 0) + (fallbackCount > 0 ? 1 : 0) === 1,
-    `mode=${mode}; plugin=${pluginInstalled}; fallback registrations=${fallbackCount}`,
-  ));
+  const sourceCheck = hookSourceCheck(pluginList, fallbackCount);
+  const { mode } = sourceCheck;
+  checks.push(sourceCheck);
   checks.push(check(
     'Copilot fallback settings valid',
-    mode !== 'project-fallback' || !settingsError,
+    !settingsError,
     settingsError || settingsPath,
   ));
   let pluginConfigValid = false;
+  let pluginConfigError = null;
   try {
     const pluginHooks = writeCopilotPluginHooks({
       citadelRoot: path.resolve(__dirname, '..'),
@@ -79,12 +96,12 @@ function collect(projectRoot) {
     });
     pluginConfigValid = !pluginHooks.changed && pluginHooks.config.version === 1;
   } catch (error) {
-    settingsError = error.message;
+    pluginConfigError = error.message;
   }
   checks.push(check(
     'native Copilot plugin hooks valid',
-    mode !== 'plugin' || pluginConfigValid,
-    settingsError || 'com.github.copilot/hooks/hooks.json',
+    pluginConfigValid,
+    pluginConfigError || 'com.github.copilot/hooks/hooks.json',
   ));
   checks.push(check(
     'Copilot hooks explicitly select their runtime',
@@ -137,7 +154,7 @@ function summarize(checks, strict = false) {
 function run(argv = process.argv.slice(2)) {
   const projectRoot = path.resolve(arg(argv, '--project-root', process.cwd()));
   const strict = argv.includes('--strict');
-  const checks = collect(projectRoot);
+  const checks = collect(projectRoot, { copilotExecutable: arg(argv, '--copilot-executable') });
   return { projectRoot, strict, ...summarize(checks, strict), checks, degradations: runtime.degradations };
 }
 
@@ -153,4 +170,4 @@ function main() {
 
 if (require.main === module) process.exit(main());
 
-module.exports = Object.freeze({ collect, hasLegacyClaudeConflict, main, run, summarize });
+module.exports = Object.freeze({ collect, hookSourceCheck, hasLegacyClaudeConflict, main, run, summarize });

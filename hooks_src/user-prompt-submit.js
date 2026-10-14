@@ -48,7 +48,8 @@ function main() {
     if (match) {
       const invocation = `${match[1]}${match[2]}`;
       const skillName = match[2].toLowerCase().split(':').pop();
-      const decision = health.checkSkillActivation(skillName).decision;
+      const activation = health.checkSkillActivation(skillName);
+      const decision = activation.decision;
       if (!['enabled', 'degraded'].includes(decision.status)
         && decision.reasonCode !== 'ACTIVATION_OWNERSHIP_UNKNOWN') {
         const apply = decision.plan?.applyCommand
@@ -58,6 +59,7 @@ function main() {
           'user-prompt-submit',
           'bundle-blocked',
           `${skillName}:${decision.reasonCode}`,
+          { runtime: activation.runtime, sourceDigest: activation.effective.sourceDigest },
         );
         process.stderr.write(
           `[Citadel activation] ${invocation} is ${decision.status} `

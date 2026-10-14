@@ -7,7 +7,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const { classifyHookProblem, collectDashboard, percentile, readOperatorArtifacts, renderDashboard, relativeTime } = require('./dashboard');
+const { classifyHookProblem, collectDashboard, percentile, readOperatorArtifacts, readProblems, renderDashboard, relativeTime } = require('./dashboard');
+const configControl = require('../core/config');
 
 function withTempProject(run) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'citadel-dashboard-'));
@@ -30,6 +31,48 @@ function appendJsonl(filePath, entries) {
 assert.equal(relativeTime('2026-06-04T12:00:00.000Z', new Date('2026-06-04T12:00:30.000Z')), 'just now');
 assert.equal(relativeTime('2026-06-04T11:30:00.000Z', new Date('2026-06-04T12:00:00.000Z')), '30 min ago');
 assert.equal(relativeTime('2026-06-03T12:00:00.000Z', new Date('2026-06-04T12:00:00.000Z')), '1 day ago');
+
+assert.equal(classifyHookProblem({ hook: 'external-action-gate', action: 'runtime-failure' }).category, 'hook-failure');
+
+withTempProject((projectRoot) => {
+  const now = new Date('2026-10-14T04:00:00.000Z');
+  const configPath = path.join(projectRoot, '.claude', 'harness.json');
+  const harness = configControl.createDefaultConfig();
+  write(configPath, JSON.stringify(harness));
+  const runtime = configControl.runtimeContract('codex');
+  const activation = configControl.reconcileEffectiveConfig(projectRoot, { runtime, reconciledAt: '2026-10-14T03:27:03.937Z' });
+  const entry = { timestamp: '2026-10-14T03:26:10.619Z', hook: 'user-prompt-submit', action: 'bundle-blocked',
+    detail: 'do:EFFECTIVE_CONFIG_STALE', runtime: 'codex', projectRoot, configPath, sourceDigest: activation.sourceDigest };
+  const context = { projectRoot, activation, auditEntries: [{ event: 'tool-call', timestamp: now.toISOString(), target: 'echo success' }] };
+  assert.equal(classifyHookProblem(entry, now, context).category, 'resolved-config');
+  for (const changed of [{ runtime: 'opencode' }, { projectRoot: path.join(projectRoot, 'other') },
+    { configPath: path.join(projectRoot, 'other.json') }, { sourceDigest: 'different' },
+    { timestamp: '2026-10-14T03:28:00.000Z' }]) {
+    assert.equal(classifyHookProblem({ ...entry, ...changed }, now, context).category, 'configuration-error');
+  }
+  for (const activationChange of [null, { ...activation, usable: false }, { ...activation, persisted: false },
+    { ...activation, reasonCode: 'EFFECTIVE_CONFIG_STALE' }, { ...activation, reasonCode: 'EFFECTIVE_CONFIG_BOOTSTRAP' }]) {
+    assert.equal(classifyHookProblem(entry, now, { ...context, activation: activationChange }).actionable, true);
+  }
+  assert.equal(classifyHookProblem({ ...entry, runtime: undefined }, now, context).category, 'configuration-current');
+  const failure = { timestamp: entry.timestamp, hook: 'external-action-gate', action: 'runtime-failure', detail: 'runtime ambiguous', runtime: 'codex' };
+  assert.equal(classifyHookProblem(failure, now, context).category, 'hook-failure');
+  assert.equal(classifyHookProblem(failure, new Date('2026-10-20'), context).actionable, true, 'elapsed time is not failure resolution');
+  const log = path.join(projectRoot, '.planning', 'telemetry', 'hook-errors.jsonl');
+  appendJsonl(log, [entry, failure, { ...failure, timestamp: '2026-10-14T03:27:18.690Z' }]);
+  const original = fs.readFileSync(log, 'utf8');
+  const problems = readProblems(projectRoot, now);
+  assert.equal(problems.summary.actionable, 1);
+  assert.equal(problems.summary.hookFailures, 1);
+  assert.equal(problems.summary.occurrences, 3);
+  assert.equal(problems.items[0].occurrences, 2);
+  assert.equal(problems.items[0].firstSeen, entry.timestamp);
+  assert.equal(problems.items[0].lastSeen, '2026-10-14T03:27:18.690Z');
+  assert.equal(fs.readFileSync(log, 'utf8'), original);
+  harness.activation.bundles = ['core'];
+  write(configPath, JSON.stringify(harness));
+  assert.equal(readProblems(projectRoot, now).summary.actionable, 2, 'still-stale configuration must remain actionable');
+});
 
 // Percentile math: nearest-rank method on a sorted ascending array
 assert.equal(percentile([], 50), null);

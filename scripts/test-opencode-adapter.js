@@ -393,7 +393,7 @@ function testAgentToolRestrictionsProject() {
   // The shipped read-only agents must actually be restricted, so a future edit to
   // one of them cannot quietly hand it write access on opencode.
   const parse = require(path.join(__dirname, '..', 'core', 'agents', 'parse-agent'));
-  const agentsDir = path.join(__dirname, '..', 'agents');
+  const agentsDir = path.join(__dirname, '..', '.citadel', 'agents');
   for (const name of ['arch-reviewer', 'policy-enforcer', 'phase-validator', 'knowledge-extractor']) {
     const frontmatter = parse.parseAgentFrontmatter(fs.readFileSync(path.join(agentsDir, `${name}.md`), 'utf8'));
     const permissions = opencodePermissionsFor(frontmatter);
@@ -461,7 +461,7 @@ async function testRestrictedAgentsCannotReachCitadelState() {
     assert.doesNotMatch(builtIn, pattern, `the citadel-state deny must not reach built-in ${builtIn}`);
   }
 
-  const agentsDir = path.join(__dirname, '..', 'agents');
+  const agentsDir = path.join(__dirname, '..', '.citadel', 'agents');
   const permissionsOf = (name) => opencodePermissionsFor(
     parse.parseAgentFrontmatter(fs.readFileSync(path.join(agentsDir, `${name}.md`), 'utf8')),
   );

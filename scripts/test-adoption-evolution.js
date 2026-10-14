@@ -62,6 +62,8 @@ function source(root, version) {
   };
   return initializeGit(root, {
     'package.json': `${JSON.stringify({ name: 'citadel', version }, null, 2)}\n`,
+    'plugin.json': `${JSON.stringify({ name: 'citadel', version })}\n`,
+    'hooks_src/codex-adapter.js': '// Synthetic Citadel installation marker for ownership tests.\n',
     '.citadel/project.template.md': `# Citadel ${version}\n`,
     'hooks/hooks-template.json': `${JSON.stringify(hookTemplate, null, 2)}\n`,
     'skills/review/SKILL.md': `---\nname: review\n---\n# Review ${version}\n`,
@@ -319,6 +321,27 @@ try {
     confirm(createAdoptionPlan({ source: sourceV1, target: root, runtimeProjections: [projection] }), controlRoot);
     assert.strictEqual(fs.readFileSync(path.join(root, '.codex', 'hooks.json'), 'utf8'), hooks);
     assert.strictEqual(fs.readFileSync(path.join(root, '.agents', 'skills', 'review', 'SKILL.md'), 'utf8'), skill);
+  });
+
+  test('Codex projections detect direct legacy hooks and preserve mixed user handlers', () => {
+    const direct = { type: 'command', command: `node "${sourceV1.replace(/\\/g, '/')}/hooks_src/protect-files.js"`, timeout: 30 };
+    const user = { type: 'command', command: 'node user.js' };
+    const original = { user: true, hooks: { PreToolUse: [{ matcher: 'Edit', hooks: [direct, user] }] } };
+    const root = target(path.join(suite, 'codex-direct'), { '.codex/hooks.json': JSON.stringify(original) });
+    const before = treeDigest(root);
+    const plugin = proposeCodexProjection({ target: root, source: sourceV1, mode: 'plugin' });
+    assert(plugin.proposed_effects.some((effect) => effect.surface === 'legacy-local-hooks'));
+    const fallback = proposeCodexProjection({ target: root, source: sourceV1, mode: 'fallback' });
+    assert.strictEqual(treeDigest(root), before, 'planning remains read-only');
+    confirm(createAdoptionPlan({ source: sourceV1, target: root, runtimeProjections: [fallback] }), controlRoot);
+    const migrated = JSON.parse(fs.readFileSync(path.join(root, '.codex/hooks.json'), 'utf8'));
+    assert(migrated.user);
+    assert(!JSON.stringify(migrated).includes('/hooks_src/protect-files.js'));
+    assert(migrated.hooks.PreToolUse.some((entry) => entry.hooks.some((hook) => hook.command === user.command)));
+    direct.timeout = 999;
+    fs.writeFileSync(path.join(root, '.codex/hooks.json'), JSON.stringify(original));
+    assert.throws(() => proposeCodexProjection({ target: root, source: sourceV1, mode: 'fallback' }),
+      { code: 'CODEX_HOOK_OWNERSHIP_AMBIGUOUS' });
   });
 
   test('plugin migration prunes only unchanged fallback-owned copies', () => {

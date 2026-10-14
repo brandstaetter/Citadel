@@ -1,0 +1,8 @@
+{
+  "models": {
+    "xlarge": "gpt-6-astra",
+    "large": "gpt-6.1-sol",
+    "medium": "gpt-5.6-terra",
+    "small": "gpt-6-luna"
+  }
+}

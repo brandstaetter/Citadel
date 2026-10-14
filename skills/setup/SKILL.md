@@ -73,10 +73,14 @@ If harness.json already exists with full config, add: `  [4] Update — reconfig
 
 ### Step 1: INSTALL HOOKS (all modes, always first)
 
-Hooks must be live before anything else. Run `node {citadel-root}/scripts/install-hooks.js`. Find `{citadel-root}`: read `.citadel/plugin-root.txt`; fallback: directory containing this SKILL.md. The installer resolves the current config (or the bootstrap Standard + Core + Persistence default), writes `.citadel/effective-config/<runtime-id>.json`, installs only hooks owned by effective bundles, preserves non-Citadel settings, and is idempotent.
+Identify the active runtime from the current session before selecting an installer. Find `{citadelRoot}` from `.citadel/plugin-root.txt` or the installed package containing this skill; use the consuming project as `{projectRoot}`. `scripts/install-hooks.js` installs **Claude Code hooks only**; never use it as the Copilot installer.
 
-**On success:** `  ✓ {N} hooks installed (protect-files, external-gate, circuit-breaker, quality-gate + more)`
-**On failure:** output the error, explain manual install path (`node /path/to/Citadel/scripts/install-hooks.js`), continue — setup must not abort.
+- **Claude Code:** run `node {citadelRoot}/scripts/install-hooks.js {projectRoot}`. It resolves the current config (or Standard + Core + Persistence), reconciles effective config, and preserves non-Citadel settings.
+- **Copilot:** first run `node {citadelRoot}/scripts/copilot-readiness-check.js --project-root {projectRoot} --json`. Use exactly one hook source: an enabled native plugin or explicitly selected project fallback. For fallback, run `node {citadelRoot}/scripts/copilot-install.js --fallback --project-root {projectRoot} --json` only when the native plugin is absent. For native plugin conflicts, report `COPILOT_FALLBACK_MIGRATION_REQUIRED`; preview `copilot-install.js --install --migrate-fallback --dry-run --project-root {projectRoot} --json` and use the explicit migration only for the selected native-plugin installation. Preserve user hooks. Do not regenerate installed package files in a read-only source; stale native artifacts require a corrected package. Re-run readiness after any repair.
+- **Other runtimes:** follow their runtime-specific installation and readiness instructions; do not substitute the Claude installer.
+
+**On success:** report the selected runtime and verified hook source. File registration counts alone do not prove live protection; require a hook event from the current runtime before claiming hooks are live.
+**On failure:** output the diagnostic and continue independent setup work, but keep protection unverified. Do not print `CITADEL READY` or the success closing line while required runtime readiness checks are blocked.
 
 ### Step 2: STACK DETECTION (all modes)
 
@@ -119,7 +123,7 @@ Preview the deterministic version-2 config migration without writing:
 
 ```bash
 node {citadelRoot}/scripts/citadel-config.js initialize \
-  --input .planning/tmp/citadel-stack.json --runtime {claude-code|codex|opencode} --json
+  --input .planning/tmp/citadel-stack.json --runtime {claude-code|codex|copilot|opencode} --json
 ```
 
 Show profile, bundles, source/candidate digests, and changed fields. Apply only
@@ -127,7 +131,7 @@ after the selected setup mode authorizes this exact plan:
 
 ```bash
 node {citadelRoot}/scripts/citadel-config.js initialize \
-  --input .planning/tmp/citadel-stack.json --runtime {claude-code|codex|opencode} --apply --json
+  --input .planning/tmp/citadel-stack.json --runtime {claude-code|codex|copilot|opencode} --apply --json
 ```
 
 Recommended and Express use `standard@1.0.0` with Core + Persistence. Full Tour
@@ -138,15 +142,17 @@ Delivery remains off until the user explicitly enables it.
 
 The apply creates a sibling backup when replacing an existing config, validates
 the observed digest, rolls back a failed write, and reconciles
-`.citadel/effective-config/<runtime-id>.json`. Re-run `install-hooks.js` after the final
-bundle choice so disabled hook families are removed from the generated runtime
-projection.
+`.citadel/effective-config/<runtime-id>.json`. After the final bundle choice, repeat the
+selected runtime's Step 1 reconciliation and readiness checks. Never run the
+Claude installer for Copilot. If `--runtime copilot` resolves to `unknown`,
+report an outdated config CLI and require a corrected package; do not substitute
+another runtime or use degraded-runtime consent to conceal the missing adapter.
 
 Note: `perFile` applies to Python checkers only; TypeScript always runs a project-scope incremental check and ignores `perFile` with an advisory.
 
 **Skill registry rebuild:** populate `registeredSkills` from every directory under `{citadelRoot}/skills/` plus `.claude/skills/`. Set `registeredSkillCount` to match.
 
-**Routing table regeneration:** run `node {citadelRoot}/scripts/generate-routing.js`, then verify with `node {citadelRoot}/scripts/generate-routing.js --check` — exit 0 means all routing surfaces are in sync (what it regenerates: docs/SETUP_REFERENCE.md#routing-surfaces). If the script is missing (older Citadel install), skip this step silently.
+**Routing table verification (read-only):** run only `node {citadelRoot}/scripts/generate-routing.js --check` — exit 0 means the shipped routing surfaces are in sync (details: docs/SETUP_REFERENCE.md#routing-surfaces). Installation consumes pre-generated routing files; never regenerate them or request write access to `{citadelRoot}` during setup. If the check fails, report the diagnostic and recommend updating or reinstalling a release with synchronized routing files, then continue setup without claiming routing verification passed. Maintainers regenerate routing in a writable source checkout before publishing. If the script is missing (older Citadel install), skip this step silently.
 
 **Dependency pattern suggestions (Recommended + Full Tour only):** read package.json for `@tanstack/react-query`, `zustand`, `date-fns`, `zod`. For each match ask: `"I see {package} installed. Warn agents when they use {anti-pattern}? [y/n]"` and add accepted patterns to `dependencyPatterns` in harness.json (anti-pattern and message table: docs/SETUP_REFERENCE.md#dependency-pattern-suggestions).
 

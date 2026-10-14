@@ -33,13 +33,14 @@ const originalReadConfig = health.readConfig;
 let config = {};
 health.readConfig = () => config;
 const {
+  changedFilesFromGit,
   parseIgnoreFile,
   isIgnoredViolation,
   parseInlineIgnores,
   selectColdPathLenses,
   lensCrossReference,
-  lensPerformance,
   lensContractual,
+  lensPerformance,
 } = require(path.join(__dirname, '..', 'hooks_src', 'quality-gate.js'));
 
 // The all-property transition rule matches class tokens, not rule IDs.
@@ -151,6 +152,25 @@ function check(label, condition, detail) {
 }
 
 console.log('quality-gate inline suppression tests\n');
+
+// A stalled Git call must not consume two native hook timeout windows.
+let gitCalls = 0;
+assert.throws(() => changedFilesFromGit('.', (_args, options) => {
+  gitCalls++;
+  assert(options.timeout < 5000);
+  throw Object.assign(new Error('timeout'), { code: 'ETIMEDOUT' });
+}), /timeout/);
+assert.equal(gitCalls, 1);
+gitCalls = 0;
+assert.deepEqual(changedFilesFromGit('.', (args) => {
+  gitCalls++;
+  if (args.includes('HEAD')) throw Object.assign(new Error('unborn'), { stderr: "fatal: bad revision 'HEAD'" });
+  return 'a file.js\0line\nbreak.js\0';
+}), ['a file.js', 'line\nbreak.js']);
+assert.equal(gitCalls, 2);
+health.readConfig = () => { throw new Error('configuration reloaded per file'); };
+assert(!selectColdPathLenses('file.js', '', { verification: { disabled: ['custom'] } }).includes('custom'));
+health.readConfig = () => config;
 
 const refDoc = 'See `planned/feature.ts` for the design.';
 const markedDoc = '<!-- citadel:ignore cross-reference -->\n' + refDoc;

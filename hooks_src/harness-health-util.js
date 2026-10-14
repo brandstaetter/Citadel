@@ -332,6 +332,7 @@ function checkSkillActivation(skillName) {
   const runtime = configControl.detectRuntimeContract(PROJECT_ROOT);
   const effective = configControl.loadActivationContext(PROJECT_ROOT, { runtime });
   return {
+    runtime: runtime.id,
     effective,
     decision: configControl.preflightSkill(effective, skillName),
   };
@@ -432,7 +433,7 @@ function getTypecheckConfig(language) {
  * @param {string} action - What happened ('blocked', 'error', 'parse-fail')
  * @param {string} detail - What was blocked or what failed
  */
-function logBlock(hook, action, detail) {
+function logBlock(hook, action, detail, scope = {}) {
   ensureTelemetryDir();
   try {
     const entry = JSON.stringify({
@@ -441,6 +442,12 @@ function logBlock(hook, action, detail) {
       hook,
       action,
       detail,
+        ...(action === 'bundle-blocked' ? {
+          projectRoot: PROJECT_ROOT,
+          configPath: path.join(PROJECT_ROOT, '.claude', 'harness.json'),
+          runtime: scope.runtime || process.env.CITADEL_RUNTIME || null,
+          sourceDigest: scope.sourceDigest || null,
+        } : {}),
     });
     fs.appendFileSync(path.join(TELEMETRY_DIR, 'hook-errors.jsonl'), entry + '\n', 'utf8');
   } catch { /* telemetry should never break the hook */ }

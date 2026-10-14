@@ -147,7 +147,8 @@ Some hooks ship in `hooks_src/` but are not in the default template. Wire them i
 citadel/
   .claude-plugin/       # Plugin manifest
   skills/               # Built-in skills ({name}/SKILL.md)
-  agents/               # Sub-agent definitions
+  .citadel/agents/      # Canonical sub-agent definitions (model placeholders)
+  agents/               # Generated Claude sub-agent definitions
   hooks/                # Hook definitions (hooks-template.json)
   hooks_src/            # Hook script implementations
   core/                 # Shared modules (campaigns, loops, fleet, telemetry, ...)

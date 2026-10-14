@@ -16,6 +16,8 @@ trigger_keywords:
 last-updated: 2026-07-30
 ---
 
+**Runtime model dispatch:** Agent definitions in `.citadel/agents/` use `xlarge`, `large`, `medium`, and `small`. Read `runtimes/<runtime>/agent-settings.json` (runtime: `claude-code`, `copilot`, or `codex`) to resolve these placeholders before explicit worker calls. For named Citadel agents, omit the per-call model override and use the generated definition. Never send a placeholder as a native model ID or silently downgrade an unavailable model.
+
 # /fleet — Parallel Coordinator
 
 Use for 3+ independent work streams that can run simultaneously in isolated worktrees. Do NOT use for single-file scope, linear work, or when a marshal or skill suffices.
@@ -75,7 +77,7 @@ For each wave:
    - Sandbox provider status when an agent has a known worktree: `node scripts/sandbox-provider.js status --provider worktree --worktree {path}`
    - Which `.planning/` paths the agent may write and the merge strategy for each (see Shared State Merge Strategies)
 2. **Log wave start**: `node .citadel/scripts/telemetry-log.cjs --event wave-start --agent fleet --session {session-slug} --meta '{"wave":N,"agents":["name1","name2"]}'`
-3. **Spawn agents** with `isolation: "worktree"`, the host's native permission policy, and prompt = full context + direction. Select an abstract capability tier and resolve it through the configured runtime-neutral alias: small (`haiku`) for bounded implementation, audit, and verify; balanced (`sonnet`) for cross-file integration/refactor; strong (`opus`) only for architecture, ambiguity, escalation, or holistic judgment. Never hardcode provider model IDs.
+3. **Spawn agents** with `isolation: "worktree"`, the host's native permission policy, and prompt = full context + direction. Select an abstract capability tier and resolve it through the configured runtime-neutral alias: small (`small`) for bounded implementation, audit, and verify; balanced (`medium`) for cross-file integration/refactor; strong (`large`) only for architecture, ambiguity, escalation, or holistic judgment. Never hardcode provider model IDs.
 4. **Collect results** from all agents in the wave
 4.5. **Validate wave results** — spawn one Phase Validator per agent (subagent_type `citadel:phase-validator`, Haiku, read-only, effort: low), all in one parallel batch. Supply only identity, exit conditions, and HANDOFF; never request source inspection or citation checks. For each verdict:
    - **`pass`**: record the validator observation. The task becomes merge-eligible only after its deterministic gates and required Exit Evidence are also current, subject-bound, `passed`, and complete.

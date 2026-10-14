@@ -12,6 +12,7 @@ const {
 } = require('../core/runtime/install-contract');
 
 const DEFAULT_PLUGIN_ROOT = path.resolve(__dirname, '..');
+const { inspectCodexHookOwnership, assertNoPluginHooks } = require('../runtimes/codex/generators/hook-ownership');
 
 function has(flag) {
   return process.argv.includes(flag);
@@ -165,6 +166,17 @@ if (fallback && (has('--plugin-only') || addMarketplace || installPlugin)) {
 const pluginRoot = path.resolve(arg('--plugin-root', DEFAULT_PLUGIN_ROOT));
 const projectRoot = path.resolve(arg('--project-root', arg('--target-project', process.cwd())));
 
+if (fallback) {
+  try { assertNoPluginHooks(projectRoot); } catch (error) {
+    const report = { pluginRoot, projectRoot, pass: false, steps: [],
+      diagnostics: [{ code: error.code, message: error.message }] };
+    if (jsonOnly) console.log(JSON.stringify(report, null, 2));
+    else console.error(error.message);
+    process.exitCode = 2;
+    return;
+  }
+}
+
 const requiredScripts = [
   'scripts/codex-compat.js',
   'scripts/codex-plugin-smoke.js',
@@ -198,9 +210,20 @@ if (installPlugin) {
   const localSkills = path.join(projectRoot, '.agents', 'skills');
   const sourceSkills = path.join(pluginRoot, 'skills');
   const legacy = [];
+  const hookDiagnostics = [];
   const localHooks = path.join(projectRoot, '.codex', 'hooks.json');
-  if (fs.existsSync(localHooks) && fs.readFileSync(localHooks, 'utf8').includes('codex-adapter')) {
-    legacy.push('.codex/hooks.json');
+  if (fs.existsSync(localHooks)) {
+    try {
+      const ownership = inspectCodexHookOwnership(JSON.parse(fs.readFileSync(localHooks, 'utf8')).hooks || {}, {
+        hooksTemplate: JSON.parse(fs.readFileSync(path.join(pluginRoot, 'hooks', 'hooks-template.json'), 'utf8')),
+        adapterScriptPath: path.join(pluginRoot, 'hooks_src', 'codex-adapter.js'),
+      });
+      if (ownership.owned.length || ownership.ambiguous.length) legacy.push('.codex/hooks.json');
+      hookDiagnostics.push(...ownership.diagnostics);
+    } catch (error) {
+      legacy.push('.codex/hooks.json');
+      hookDiagnostics.push({ code: 'CODEX_HOOK_OWNERSHIP_AMBIGUOUS', message: `Cannot inspect local hooks: ${error.message}` });
+    }
   }
   if (fs.existsSync(sourceSkills)) {
     for (const name of fs.readdirSync(sourceSkills)) {
@@ -214,7 +237,7 @@ if (installPlugin) {
     const report = {
       pluginRoot, projectRoot, pass: false, mode: 'plugin-only', steps: [],
       blockers: legacy,
-      diagnostics: [{ code: 'CODEX_FALLBACK_MIGRATION_REQUIRED',
+      diagnostics: [...hookDiagnostics, { code: 'CODEX_FALLBACK_MIGRATION_REQUIRED',
         message: 'Project-local Citadel hooks or same-named skills may duplicate the plugin. Verify ownership and migrate them before plugin installation; user-authored or modified files must be preserved.' }],
       nextSteps: { codexApp: [], codexCli: [] },
     };
@@ -281,6 +304,14 @@ if (!pluginOnly && steps.every((step) => step.pass || !step.required)) {
     name: 'Generate Codex project artifacts',
     command: node,
     args: [path.join(projectPluginRoot, 'scripts', 'codex-compat.js'), projectRoot],
+    cwd: projectRoot,
+    dryRun,
+  }));
+
+  steps.push(runStep({
+    name: 'Migrate and install Codex project hooks',
+    command: node,
+    args: [path.join(projectPluginRoot, 'scripts', 'install-hooks-codex.js'), projectRoot, '--json'],
     cwd: projectRoot,
     dryRun,
   }));

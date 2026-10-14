@@ -128,7 +128,7 @@ delegation pattern:
 
 Archon selects both an abstract worker capability tier and `effort`. The tiers
 small, balanced, and strong resolve through the configured runtime-neutral aliases
-`haiku`, `sonnet`, and `opus`, respectively; never hardcode provider model IDs in
+`small`, `medium`, and `large`, respectively; never hardcode provider model IDs in
 campaign guidance.
 
 | Phase Type | Worker tier | Effort | Token Budget | Notes |
@@ -193,7 +193,7 @@ completion. `partial` describes progress only and never satisfies a dependency.
 reasons about whether the HANDOFF credibly claims the exit conditions were met, and its `fail` is
 retryable. For an *irreducibly holistic* call — "is this work actually sound, correct, coherent?", or
 the binding accept/reject after the retry budget is exhausted — escalate to the
-strong-tier **`arbiter`** agent (`agents/arbiter.md`). The
+strong-tier **`arbiter`** agent (`.citadel/agents/arbiter.md`, `xlarge` model tier). The
 arbiter *acts* (re-runs the objective gates itself rather than trusting prose) and its
 `verdict: "block"` is **binding** — Archon may not accept around it. Pair the arbiter with a model of
 a *different family* from the worker (decorrelated blind spots) and keep it strong: it runs once per

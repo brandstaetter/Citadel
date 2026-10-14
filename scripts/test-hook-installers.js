@@ -6,6 +6,8 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { spawnSync } = require('child_process');
+const { inspectCodexHookOwnership, assertNoPluginHooks } = require('../runtimes/codex/generators/hook-ownership');
 
 const { installClaudeHooks } = require('../runtimes/claude-code/generators/install-hooks');
 const { installCodexHooks, translateCodexHooks, translateCodexPluginHooks } = require('../runtimes/codex/generators/install-hooks');
@@ -230,7 +232,7 @@ withTempDir((projectRoot) => {
     hooks: [
       {
         type: 'command',
-        command: 'node "/old/codex-adapter.js" session-end',
+        command: `node "${citadelRoot.replace(/\\/g, '/')}/hooks_src/codex-adapter.js" session-end`,
       },
       {
         type: 'command',
@@ -264,4 +266,84 @@ withTempDir((projectRoot) => {
   ), 'Codex reinstall should place the generated session-end handler on SessionEnd');
 });
 
+withTempDir((projectRoot) => {
+  const legacy = JSON.parse(JSON.stringify(hooksTemplate.hooks).replaceAll('${CLAUDE_PLUGIN_ROOT}', citadelRoot.replace(/\\/g, '/')));
+  const userHook = { type: 'command', command: 'node user-check.js', timeout: 17 };
+  legacy.PreToolUse[0].hooks.push(userHook);
+  const options = { projectRoot, hooksTemplate, adapterScriptPath: path.join(citadelRoot, 'hooks_src', 'codex-adapter.js') };
+  const migrated = installCodexHooks({ ...options, existingHooks: legacy });
+  assert(!JSON.stringify(migrated.hooks).includes('/hooks_src/protect-files.js'), 'direct legacy handlers must be replaced');
+  assert(migrated.hooks.PreToolUse.some((entry) => entry.matcher === 'Edit|Write' && entry.hooks.includes(userHook)));
+  assert.deepStrictEqual(installCodexHooks({ ...options, existingHooks: migrated.hooks }).hooks, migrated.hooks,
+    'repeat installation must not duplicate handlers');
+});
+
 console.log('hook installer tests passed');
+
+withTempDir((projectRoot) => {
+  const adapterScriptPath = path.join(citadelRoot, 'hooks_src', 'codex-adapter.js');
+  const options = { projectRoot, hooksTemplate, adapterScriptPath };
+  const direct = JSON.parse(JSON.stringify(hooksTemplate.hooks.PreToolUse[2]).replaceAll('${CLAUDE_PLUGIN_ROOT}', citadelRoot.replace(/\\/g, '/')));
+  const user = { matcher: 'Bash', hooks: [{ type: 'command', command: 'node user.js' }] };
+  const windows = structuredClone(direct);
+  windows.hooks[0].command = `node "${citadelRoot}\\hooks_src\\external-action-gate.js"`;
+  assert.equal(inspectCodexHookOwnership({ PreToolUse: [windows] }, options).owned.length, 1);
+  for (const modify of [
+    (entry) => { entry.hooks[0].timeout = 999; },
+    (entry) => { entry.matcher = 'custom'; },
+    (entry) => { entry.hooks[0].command += ' && node user.js'; },
+    (entry) => { entry.hooks[0].commandWindows = 'node user-windows.js'; },
+    (entry) => { entry.hooks[0].command = 'node C:/unverified/hooks_src/external-action-gate.js'; },
+    (entry) => { entry.hooks[0].command = 'node C:/unverified/codex-adapter.js external-action-gate'; },
+  ]) {
+    const modified = structuredClone(direct);
+    modify(modified);
+    const before = JSON.stringify(modified);
+    const inspected = inspectCodexHookOwnership({ PreToolUse: [modified, user] }, options);
+    assert.equal(inspected.ambiguous.length, 1);
+    assert.deepEqual(inspected.preserved.PreToolUse, [modified, user]);
+    assert.throws(() => installCodexHooks({ ...options, existingHooks: { PreToolUse: [modified, user] } }),
+      { code: 'CODEX_HOOK_OWNERSHIP_AMBIGUOUS' });
+    assert.equal(JSON.stringify(modified), before);
+  }
+  const outputPath = path.join(projectRoot, '.codex', 'hooks.json');
+  fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+  const original = JSON.stringify({ custom: 'keep', hooks: { PreToolUse: [direct, user] } });
+  fs.writeFileSync(outputPath, original);
+  const env = { ...process.env, CODEX_HOME: path.join(projectRoot, 'codex-home') };
+  const cli = (args) => spawnSync(process.execPath, [path.join(citadelRoot, 'scripts/install-hooks-codex.js'), projectRoot, '--json', ...args],
+    { env, encoding: 'utf8' });
+  const preview = cli(['--dry-run']);
+  assert.equal(preview.status, 0, preview.stdout + preview.stderr);
+  assert.equal(fs.readFileSync(outputPath, 'utf8'), original);
+  assert(!fs.existsSync(`${outputPath}.pre-citadel-migration`));
+  assert(!fs.existsSync(path.join(projectRoot, '.citadel')));
+  for (const existing of [{ PreToolUse: [direct] }, translateCodexHooks(hooksTemplate, adapterScriptPath).hooks]) {
+    fs.writeFileSync(outputPath, JSON.stringify({ hooks: existing }));
+    const preflight = spawnSync(process.execPath, [path.join(citadelRoot, 'scripts/codex-install.js'),
+      '--project-root', projectRoot, '--install', '--dry-run', '--json'], { env, encoding: 'utf8' });
+    assert.equal(preflight.status, 2, preflight.stderr);
+    assert(JSON.parse(preflight.stdout).blockers.includes('.codex/hooks.json'));
+    assert.equal(JSON.parse(preflight.stdout).steps.length, 0);
+  }
+  fs.writeFileSync(outputPath, original);
+  const applied = cli([]);
+  assert.equal(applied.status, 0, applied.stdout + applied.stderr);
+  assert.equal(fs.readFileSync(`${outputPath}.pre-citadel-migration`, 'utf8'), original);
+  assert.equal(JSON.parse(fs.readFileSync(outputPath, 'utf8')).custom, 'keep');
+  const once = fs.readFileSync(outputPath, 'utf8');
+  assert.equal(cli([]).status, 0);
+  assert.equal(fs.readFileSync(outputPath, 'utf8'), once);
+  assert.equal(cli(['--remove-local']).status, 0);
+  assert.deepEqual(JSON.parse(fs.readFileSync(outputPath, 'utf8')).hooks, { PreToolUse: [user] });
+  assert.equal(cli(['--remove-local']).status, 0);
+  const configPath = path.join(projectRoot, '.codex', 'config.toml');
+  fs.writeFileSync(configPath, '[plugins."citadel@citadel-local"]\nenabled = true\n');
+  assert.throws(() => assertNoPluginHooks(projectRoot, { env }), { code: 'CODEX_PLUGIN_HOOK_CONFLICT' });
+  assert.equal(JSON.parse(cli([]).stdout).code, 'CODEX_PLUGIN_HOOK_CONFLICT');
+  assert.equal(cli(['--remove-local', '--dry-run']).status, 0);
+  fs.writeFileSync(configPath, '[plugins."citadel@citadel-local"]\nenabled = false\n');
+  assert.doesNotThrow(() => assertNoPluginHooks(projectRoot, { env }));
+});
+
+console.log('Codex legacy ownership, migration, plugin conflicts and idempotence passed');

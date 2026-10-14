@@ -1,0 +1,8 @@
+{
+  "models": {
+    "xlarge": "claude-fable-5.1",
+    "large": "claude-opus-5.5",
+    "medium": "claude-sonnet-5.5",
+    "small": "claude-haiku-5.5"
+  }
+}

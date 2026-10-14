@@ -8,7 +8,7 @@ description: >-
   operations.
 maxTurns: 10
 effort: low
-model: claude-haiku-4-5
+model: haiku
 disallowedTools:
   - Bash
   - Write
@@ -22,6 +22,11 @@ tools:
   - Glob
   - Grep
 ---
+
+<!-- Generated from .citadel/agents/policy-enforcer.md; do not edit. -->
+
+Runtime model mapping: xlarge = fable; large = opus; medium = sonnet; small = haiku. Resolve placeholders through this mapping before explicit worker calls. For named Citadel agents, omit per-call model overrides to retain their configured model. Never send a placeholder to the runtime. If a required model is unavailable, report it instead of silently downgrading.
+
 
 # Policy Enforcer
 

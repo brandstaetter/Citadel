@@ -22,6 +22,17 @@ Full Tour may offer Parallel and Operations as separate explicit activation
 plans. Setup reconciles `.citadel/effective-config/<runtime-id>.json` and then regenerates
 only the hooks owned by effective bundles.
 
+Setup must select the active runtime before installing hooks.
+`scripts/install-hooks.js` is Claude Code-specific. Copilot uses
+`scripts/copilot-readiness-check.js --project-root {projectRoot} --json` to
+check its native plugin or project fallback, never both. A duplicate fallback
+diagnostic requires an explicit `copilot-install.js --install --migrate-fallback`
+migration for native-plugin installation; preview it with `--dry-run` first.
+Keep user hooks and do not regenerate files inside a read-only installed package.
+Claude hook counts do not establish Copilot protection. If the config CLI maps
+`--runtime copilot` to `unknown`, use a corrected package; selecting Claude or
+accepting degraded support does not repair the missing Copilot mapping.
+
 ## Stack Detection Tables
 
 Setup never asks what can be read from the project root.
@@ -81,9 +92,10 @@ project-scope incremental check and ignores `perFile` with an advisory.
 
 ## Routing Surfaces
 
-`node {citadelRoot}/scripts/generate-routing.js` regenerates the routing
-keyword surfaces inside the Citadel install from each skill's
-`trigger_keywords` frontmatter:
+Routing keyword surfaces ship pre-generated from each skill's
+`trigger_keywords` frontmatter. Installation consumes these files without
+writing to the Citadel source directory, which may be a read-only plugin
+cache or sandbox mount:
 
 - `core/skills/routing-table.json` (consumed by `scripts/route-preview.js`)
 - The Tier 2 table in `skills/do/SKILL.md`
@@ -91,6 +103,16 @@ keyword surfaces inside the Citadel install from each skill's
 
 Verify with `node {citadelRoot}/scripts/generate-routing.js --check` — exit 0
 means all three surfaces are in sync.
+
+Setup runs only this read-only check. If it fails, report the diagnostic and
+recommend updating or reinstalling a release with synchronized routing files;
+continue setup without claiming routing verification passed. Do not regenerate
+files or request source-directory write access during installation.
+
+Maintainers run `node scripts/generate-routing.js` in a writable source
+checkout after changing routing inputs, then run the check and commit the
+generated surfaces before publishing. Project-local skill registration does
+not require regenerating the built-in routing table.
 
 ## Dependency Pattern Suggestions
 

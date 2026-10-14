@@ -14,8 +14,10 @@ trigger_keywords:
   - which tool
   - auto-route
   - unified router
-last-updated: 2026-07-31
+last-updated: 2026-10-11
 ---
+
+**Runtime model dispatch:** Agent definitions in `.citadel/agents/` use `xlarge`, `large`, `medium`, and `small`. Read `runtimes/<runtime>/agent-settings.json` (runtime: `claude-code`, `copilot`, or `codex`) to resolve these placeholders before explicit worker calls. For named Citadel agents, omit the per-call model override and use the generated definition. Never send a placeholder as a native model ID or silently downgrade an unavailable model.
 
 # /do — Unified Intent Router
 
@@ -41,12 +43,13 @@ Use `/do` when the user wants something done but doesn't know (or care) which to
 ## Protocol
 
 Classification runs top-to-bottom. Exact commands resolve first. Natural-language requests use keyword matches only as candidate evidence for semantic classification.
+**Input Binding (before routing or empty-input fallback):** Use explicit invocation arguments when provided; otherwise read the invoking user message in the current turn. Loading skill instructions does not replace that request. An absent argument field or `$ARGUMENTS` substitution does not mean empty input.
+Remove only a leading `/do`, `/citadel:do` (Copilot), or `$citadel:do` (Codex) token and its separating whitespace. Preserve the remaining request, flags, quotes, and line breaks. `/citadel:do status` must execute the Tier 0 dashboard route without asking for a direction; `/citadel:do preview status` stays a preview.
+Commands quoted inside bug reports or larger requests are context, not invocations. Never take arguments from skill examples or older turns. Use the empty-input fallback only when the invoking request truly has no direction after removing the command token; never ask users to repeat arguments already supplied.
 
 ### Step 0: Skill Registry Check (Cost: ~0 on hit | ~50 tokens on miss)
 
-Compare installed skill directories with `core/skills/routing-table.json`. If they
-match, continue without reading skill bodies. For each unknown skill, read only
-its frontmatter and use `name`, `description`, and `trigger_keywords` as session-local Tier 2 match targets, then report:
+Compare installed skill directories with `core/skills/routing-table.json`. If they match, continue without reading skill bodies. For each unknown skill, read only its frontmatter and use `name`, `description`, and `trigger_keywords` as session-local Tier 2 match targets, then report:
 `"Discovered {N} new skill(s): {names}. Run /do setup to regenerate routing."`
 Do not write registration fields into `harness.json`; schema-v2 config is exact and generated routing is a projection, not config authority.
 
@@ -287,7 +290,7 @@ Output a grouped skill list drawn from the system reminder's available skills. G
   activation preview. Core/Persistence routes may proceed; other bundles return
   an explicit activation plan. Do not write config during routing.
 - **Multiple skills match at Tier 2**: Carry candidates to Tier 3 per Tier 2 disambiguation rule above.
-- **User input is empty or whitespace**: Respond with the `--list` output and a prompt to provide a direction.
+- **User input is empty or whitespace after Input Binding**: Respond with the `--list` output and a prompt to provide a direction.
 - **Routed skill not found**: Report "Skill not found" and fall back to Marshal as the safe default.
 
 ## Contextual Gates

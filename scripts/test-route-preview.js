@@ -10,6 +10,27 @@ const os = require('os');
 const path = require('path');
 
 const { buildPreview, keywordMatches, parseArgs, render, selectRoute } = require('./route-preview');
+const { parseDeterministicCommand, parseRequestEnvelope, stripDoPrefix } = require('../core/skills/routing');
+
+// Native plugin invocations must preserve the same request as bare /do.
+for (const prefix of ['/do', '/citadel:do', '$citadel:do']) {
+  assert.equal(stripDoPrefix(`${prefix} status`), 'status');
+  assert.equal(stripDoPrefix(prefix), '');
+  assert.equal(parseDeterministicCommand(`${prefix} status`).id, 'status');
+  const route = selectRoute(`${prefix} status`);
+  assert.equal(route.selected, '/dashboard');
+  assert.equal(route.command, 'node scripts/dashboard.js');
+  assert.equal(route.tier, 0);
+  assert.deepEqual(parseRequestEnvelope(`${prefix} preview status`), {
+    mode: 'preview', originalInput: `${prefix} preview status`, request: 'status',
+  });
+  assert.equal(selectRoute(`${prefix} status page feature`).final, false);
+}
+assert.equal(parseDeterministicCommand('  /CITADEL:DO \n STATUS  ').id, 'status');
+for (const input of ['/citadel:double status', '/other:do status', 'explain /citadel:do status']) {
+  assert.equal(stripDoPrefix(input), input);
+  assert.equal(parseDeterministicCommand(input), null);
+}
 
 assert.deepEqual(parseArgs(['--json', '--project-root', '.', '--', 'review', 'auth']).input, 'review auth');
 

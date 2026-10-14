@@ -6,6 +6,7 @@ const { digestBytes } = require('./contracts');
 const { snapshot } = require('./footprint');
 const { mergeHookMaps } = require('../hooks/install');
 const { translateCodexHooks } = require('../../runtimes/codex/generators/install-hooks');
+const { inspectCodexHookOwnership, assertUnambiguous } = require('../../runtimes/codex/generators/hook-ownership');
 const {
   preserveUserHooks: preserveCopilotUserHooks,
   translateCopilotHooks,
@@ -139,14 +140,20 @@ function proposeCodexProjection(options) {
   const mode = options.mode || 'plugin';
   if (!['plugin', 'fallback'].includes(mode)) throw new Error(`Unknown Codex projection mode: ${mode}`);
   const ownedPaths = new Set(options.ownedPaths || []);
+  const hookOptions = {
+    hooksTemplate: readJson(path.join(source, 'hooks', 'hooks-template.json')),
+    adapterScriptPath: path.join(source, 'hooks_src', 'codex-adapter.js'),
+  };
   const configReview = unknownFileProposal(
     'codex', 'config.toml', target, '.codex/config.toml',
     'No safe structural TOML writer or Citadel-owned config member is established',
   );
   if (mode === 'plugin') {
     const localHooks = path.join(target, '.codex', 'hooks.json');
-    const legacyHooks = !ownedPaths.has('.codex/hooks.json') && fs.existsSync(localHooks)
-      && fs.readFileSync(localHooks, 'utf8').includes('codex-adapter');
+    const ownership = fs.existsSync(localHooks)
+      ? inspectCodexHookOwnership(readJson(localHooks).hooks || {}, hookOptions) : null;
+    const legacyHooks = !ownedPaths.has('.codex/hooks.json')
+      && (ownership?.owned.length || ownership?.ambiguous.length);
     return {
       runtime: 'codex',
       status: 'plugin_registration_required',
@@ -166,17 +173,18 @@ function proposeCodexProjection(options) {
       .replace(/\$\{CLAUDE_PLUGIN_ROOT\}/g, source.replace(/\\/g, '/')),
   );
   const hookRelative = '.codex/hooks.json';
-  const existingHooks = readJson(path.join(target, ...hookRelative.split('/')), {}).hooks || {};
+  const existingConfig = readJson(path.join(target, ...hookRelative.split('/')), {});
+  const ownership = inspectCodexHookOwnership(existingConfig.hooks || {}, hookOptions);
+  assertUnambiguous(ownership);
   const translated = translateCodexHooks(
     hooksTemplate,
     path.join(source, 'hooks_src', 'codex-adapter.js'),
   );
-  const mergedHooks = mergeHookMaps({
-    existingHooks,
-    generatedHooks: translated.hooks,
-    preserveMarker: 'codex-adapter',
-  });
-  const hookContent = Buffer.from(`${JSON.stringify({ hooks: mergedHooks }, null, 2)}\n`);
+  const mergedHooks = { ...ownership.preserved };
+  for (const [event, entries] of Object.entries(translated.hooks)) {
+    mergedHooks[event] = [...entries, ...(ownership.preserved[event] || [])];
+  }
+  const hookContent = Buffer.from(`${JSON.stringify({ ...existingConfig, hooks: mergedHooks }, null, 2)}\n`);
   return {
     runtime: 'codex',
     status: 'project_fallback_without_plugin_registration',

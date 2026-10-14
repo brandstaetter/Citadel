@@ -747,6 +747,30 @@ function hasLaterMatchingToolCall(entry, auditEntries = []) {
   });
 }
 
+function configurationResolution(entry, now, context) {
+  if (entry.action !== 'bundle-blocked'
+    || !/^[a-z][a-z0-9-]*:EFFECTIVE_CONFIG_(STALE|MISSING|MALFORMED|FUTURE)$/.test(entry.detail || '')) return null;
+  const effective = context.activation;
+  const receipt = effective?.receipt;
+  if (!effective?.usable || effective.reasonCode !== 'EFFECTIVE_CONFIG_CURRENT'
+    || effective.persisted === false || !receipt?.authority?.valid || receipt.status === 'blocked') return null;
+  if (!context.projectRoot || !effective.projectRoot
+    || path.resolve(effective.projectRoot) !== path.resolve(context.projectRoot)) return null;
+  if (entry.projectRoot && path.resolve(entry.projectRoot) !== path.resolve(context.projectRoot)) return null;
+  const configPath = path.join(context.projectRoot, '.claude', 'harness.json');
+  if (entry.configPath && path.resolve(entry.configPath) !== path.resolve(configPath)) return null;
+  const runtime = typeof entry.runtime === 'string' ? entry.runtime : entry.runtime?.id;
+  if (runtime && runtime !== receipt.runtime.id) return null;
+  if (entry.sourceDigest && entry.sourceDigest !== effective.sourceDigest) return null;
+  const failedAt = Date.parse(eventTimestamp(entry));
+  const repairedAt = Date.parse(receipt.reconciledAt);
+  if (!Number.isFinite(failedAt) || !Number.isFinite(repairedAt)
+    || repairedAt <= failedAt || repairedAt > now.getTime()) return null;
+  return { runtime: receipt.runtime.id, projectRoot: effective.projectRoot,
+    sourceDigest: effective.sourceDigest, receiptDigest: receipt.receiptDigest,
+    reconciledAt: receipt.reconciledAt, scope: runtime ? 'event-runtime' : 'current-runtime-only' };
+}
+
 function classifyHookProblem(entry, now = new Date(), context = {}) {
   const hook = entry.hook || 'hook';
   const actionName = entry.action || entry.outcome || entry.status || 'recorded';
@@ -756,19 +780,29 @@ function classifyHookProblem(entry, now = new Date(), context = {}) {
   const stale = timestamp ? ageMs > 24 * 60 * 60 * 1000 : false;
   const description = truncate(detail, 90);
   const text = `${hook} ${actionName} ${detail}`.toLowerCase();
+  const resolution = configurationResolution(entry, now, context);
+  const configError = actionName === 'bundle-blocked' && /:EFFECTIVE_CONFIG_/.test(detail);
 
   let category = 'attention';
   let severity = 'medium';
   let actionable = true;
 
-  if (stale) {
-    category = 'stale';
-    severity = 'low';
+  if (resolution) {
+    // Legacy logs have no runtime. Report only the verified current scope,
+    // without claiming that the historical event's unknown runtime was fixed.
+    category = resolution.scope === 'event-runtime' ? 'resolved-config' : 'configuration-current';
+    severity = 'info';
     actionable = false;
-  } else if (actionName === 'error' || actionName === 'parse-fail' || text.includes('unknown error')) {
+  } else if (actionName === 'runtime-failure' || actionName === 'error' || actionName === 'parse-fail' || text.includes('unknown error')) {
     category = 'hook-failure';
     severity = 'high';
     actionable = true;
+  } else if (configError) {
+    category = 'configuration-error';
+  } else if (stale) {
+    category = 'stale';
+    severity = 'low';
+    actionable = false;
   } else if (actionName === 'blocked-restricted') {
     category = 'restricted-scope-block';
     severity = 'high';
@@ -810,6 +844,16 @@ function classifyHookProblem(entry, now = new Date(), context = {}) {
     severity,
     actionable,
     stale,
+    timestamp,
+    firstSeen: timestamp,
+    lastSeen: timestamp,
+    occurrences: 1,
+    resolution,
+    runtime: entry.runtime || null,
+    projectRoot: entry.projectRoot || context.projectRoot || null,
+    configPath: entry.configPath || null,
+    sourceDigest: entry.sourceDigest || null,
+    detail,
     relative: relativeTime(timestamp, now),
     description,
   };
@@ -824,15 +868,21 @@ function summarizeProblemTaxonomy(problems) {
     hookFailures: 0,
     approvalNeeded: 0,
     resolvedApprovals: 0,
+    resolvedConfigurations: 0,
+    currentConfigurations: 0,
+    occurrences: 0,
   };
 
   for (const problem of problems) {
+    summary.occurrences += problem.occurrences || 1;
     if (problem.actionable) summary.actionable++;
     if (problem.category === 'safety-block') summary.safetyBlocks++;
     if (problem.category === 'stale' || problem.category === 'stale-approval') summary.stale++;
     if (problem.category === 'hook-failure') summary.hookFailures++;
     if (problem.category === 'approval-needed') summary.approvalNeeded++;
     if (problem.category === 'resolved-approval') summary.resolvedApprovals++;
+    if (problem.category === 'resolved-config') summary.resolvedConfigurations++;
+    if (problem.category === 'configuration-current') summary.currentConfigurations++;
   }
 
   return summary;
@@ -842,12 +892,37 @@ function readProblems(projectRoot, now = new Date()) {
   const telemetryDir = path.join(projectRoot, '.planning', 'telemetry');
   const errors = tailJsonl(path.join(telemetryDir, 'hook-errors.jsonl'), 100);
   const auditEntries = tailJsonl(path.join(telemetryDir, 'audit.jsonl'), 300);
-  const problems = errors
-    .map((entry) => classifyHookProblem(entry, now, { auditEntries }))
+  const activations = new Map();
+  const grouped = new Map();
+  for (const entry of errors) {
+    const runtimeId = typeof entry.runtime === 'string' ? entry.runtime : entry.runtime?.id;
+    const key = runtimeId || 'active';
+    if (!activations.has(key)) {
+      try {
+        const runtime = configControl.detectRuntimeContract(projectRoot, runtimeId ? { runtimeId } : {});
+        activations.set(key, configControl.readEffectiveConfig(projectRoot, { runtime }));
+      } catch { activations.set(key, null); }
+    }
+    const problem = classifyHookProblem(entry, now, { auditEntries, projectRoot, activation: activations.get(key) });
+    const signature = JSON.stringify([problem.hook, problem.action, problem.detail, problem.category,
+      problem.runtime, problem.projectRoot, problem.configPath, problem.sourceDigest]);
+    const previous = grouped.get(signature);
+    if (previous) {
+      previous.occurrences++;
+      if (Date.parse(problem.timestamp) < Date.parse(previous.firstSeen)) previous.firstSeen = problem.timestamp;
+      if (Date.parse(problem.timestamp) > Date.parse(previous.lastSeen)) {
+        previous.lastSeen = problem.timestamp;
+        previous.timestamp = problem.timestamp;
+        previous.relative = problem.relative;
+        previous.stale = problem.stale;
+      }
+    } else grouped.set(signature, problem);
+  }
+  const problems = [...grouped.values()]
     .sort((left, right) => {
       const severityOrder = { high: 0, medium: 1, info: 2, low: 3 };
       if (left.actionable !== right.actionable) return left.actionable ? -1 : 1;
-      return (severityOrder[left.severity] || 4) - (severityOrder[right.severity] || 4);
+      return (severityOrder[left.severity] ?? 4) - (severityOrder[right.severity] ?? 4);
     });
 
   return {
@@ -1403,6 +1478,11 @@ function renderDashboard(snapshot) {
   } else {
     for (const problem of snapshot.problems) {
       lines.push(`  ${problem.relative} | ${problem.severity} | ${problem.category} | ${problem.hook} | ${problem.description}`);
+      if (problem.occurrences > 1) lines.push(`    ${problem.occurrences} occurrences | first ${problem.firstSeen} | last ${problem.lastSeen}`);
+      if (problem.resolution) {
+        lines.push(`    ${problem.resolution.runtime} configuration reconciled ${problem.resolution.reconciledAt}`
+          + (problem.resolution.scope === 'current-runtime-only' ? ' (historical runtime unrecorded; current runtime only)' : ''));
+      }
     }
   }
 
@@ -1500,6 +1580,7 @@ module.exports = {
   renderDashboard,
   readHookOverhead,
   readOperatorArtifacts,
+  readProblems,
   readRoutineQuota,
   relativeTime,
   parseArgs,

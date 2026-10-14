@@ -1,5 +1,6 @@
 ---
 name: knowledge-extractor
+model: haiku
 description: >-
   Extracts reusable patterns, pitfalls, and decisions from completed
   work and writes them to the wiki staging area. Run after finishing a
@@ -19,6 +20,11 @@ tools:
   - Glob
   - Grep
 ---
+
+<!-- Generated from .citadel/agents/knowledge-extractor.md; do not edit. -->
+
+Runtime model mapping: xlarge = fable; large = opus; medium = sonnet; small = haiku. Resolve placeholders through this mapping before explicit worker calls. For named Citadel agents, omit per-call model overrides to retain their configured model. Never send a placeholder to the runtime. If a required model is unavailable, report it instead of silently downgrading.
+
 
 # Knowledge Extractor
 

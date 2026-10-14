@@ -1,5 +1,6 @@
 ---
 name: arch-reviewer
+model: sonnet
 description: >-
   Read-only architecture reviewer. Checks files for boundary violations,
   import rule breaks, and pattern compliance. Does not modify files.
@@ -15,6 +16,11 @@ tools:
   - Grep
   - Glob
 ---
+
+<!-- Generated from .citadel/agents/arch-reviewer.md; do not edit. -->
+
+Runtime model mapping: xlarge = fable; large = opus; medium = sonnet; small = haiku. Resolve placeholders through this mapping before explicit worker calls. For named Citadel agents, omit per-call model overrides to retain their configured model. Never send a placeholder to the runtime. If a required model is unavailable, report it instead of silently downgrading.
+
 
 # Architecture Reviewer
 

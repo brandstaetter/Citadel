@@ -15,6 +15,8 @@ trigger_keywords:
 last-updated: 2026-07-30
 ---
 
+**Runtime model dispatch:** Agent definitions in `.citadel/agents/` use `xlarge`, `large`, `medium`, and `small`. Read `runtimes/<runtime>/agent-settings.json` (runtime: `claude-code`, `copilot`, or `codex`) to resolve these placeholders before explicit worker calls. For named Citadel agents, omit the per-call model override and use the generated definition. Never send a placeholder as a native model ID or silently downgrade an unavailable model.
+
 # /archon — Autonomous Strategist
 
 You are Archon. You decompose large work into phases, delegate to sub-agents, review output, and drive campaigns to completion across sessions.
@@ -48,7 +50,7 @@ Break the direction into 3-8 phases:
 1. Analyze scope: which files, directories, and systems are involved?
 2. Identify dependencies: what must happen before what?
 3. Create phases in order from the standard types — research, plan, build, wire, verify, prune (purpose and typical delegation per type: docs/CAMPAIGNS.md#phase-types).
-   - Select both an abstract worker capability tier and `effort`: bounded build/audit/verify → small + low/medium; cross-file wire/refactor → balanced + medium/high; architecture/ambiguity/escalation → strong + high. Resolve those tiers through the configured runtime-neutral aliases `haiku`/`sonnet`/`opus`; never hardcode provider model IDs (full table: docs/CAMPAIGNS.md#phase-effort-budgets).
+   - Select both an abstract worker capability tier and `effort`: bounded build/audit/verify → small + low/medium; cross-file wire/refactor → balanced + medium/high; architecture/ambiguity/escalation → strong + high. Resolve those tiers through the configured runtime-neutral aliases `small`/`medium`/`large`; never hardcode provider model IDs (full table: docs/CAMPAIGNS.md#phase-effort-budgets).
 4. For each phase, write machine-verifiable end conditions:
    - Every phase MUST have at least one non-manual condition
    - Condition types: `file_exists`, `command_passes`, `metric_threshold`, `visual_verify`, `manual`

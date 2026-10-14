@@ -1,7 +1,8 @@
 {
-  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
   "name": "citadel",
   "version": "1.4.4",
+  "hooks": "./com.github.copilot/hooks/hooks.json",
+  "agents": "./com.github.copilot/agents",
   "description": "Agent orchestration harness for durable campaigns, skills, hooks, telemetry, and parallel work.",
   "author": {
     "name": "Citadel",

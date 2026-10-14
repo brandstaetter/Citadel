@@ -536,9 +536,9 @@ function getAgentMaxChars(fm) {
 function translateAgents() {
   console.log('Translating agent definitions...');
 
-  const agentsDir = path.join(CITADEL_ROOT, 'agents');
+  const agentsDir = path.join(CITADEL_ROOT, '.citadel', 'agents');
   if (!fs.existsSync(agentsDir)) {
-    console.log('  No agents/ directory found, skipping.');
+    console.log('  No .citadel/agents/ directory found, skipping.');
     return;
   }
 
@@ -580,7 +580,7 @@ function agentToToml(fm, fullContent, agentConfig) {
   const parsedAgent = parseAgentContent(
     fm.name,
     fullContent,
-    path.join(CITADEL_ROOT, 'agents', `${fm.name}.md`),
+    path.join(CITADEL_ROOT, '.citadel', 'agents', `${fm.name}.md`),
   );
   return renderCodexToml(parsedAgent, { agentConfig, maxChars });
 }

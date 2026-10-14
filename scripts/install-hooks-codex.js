@@ -4,7 +4,9 @@
 
 const fs = require('fs');
 const path = require('path');
-const { reconcileEffectiveConfig } = require('../core/config');
+const { reconcileEffectiveConfig, loadResolvedConfig } = require('../core/config');
+const { writeJson } = require('../core/hooks/install');
+const { inspectCodexHookOwnership, assertUnambiguous, assertNoPluginHooks } = require('../runtimes/codex/generators/hook-ownership');
 const { installCodexHooks } = require('../runtimes/codex/generators/install-hooks');
 const codexRuntime = require('../runtimes/codex/runtime');
 
@@ -12,21 +14,43 @@ const CITADEL_ROOT = path.resolve(__dirname, '..');
 const args = process.argv.slice(2);
 const VERBOSE = args.includes('--verbose') || args.includes('-v');
 const JSON_OUTPUT = args.includes('--json');
+const DRY_RUN = args.includes('--dry-run');
+const REMOVE_LOCAL = args.includes('--remove-local');
 const PROJECT_ROOT = args.find((a) => !a.startsWith('-')) || process.cwd();
 
 function main() {
   try {
-    const resolved = reconcileEffectiveConfig(PROJECT_ROOT, { runtime: codexRuntime });
-    if (resolved.receipt.status === 'blocked') {
-      throw new Error(`Harness config blocks hook installation: ${resolved.receipt.errors.join('; ')}`);
+    if (args.includes('--help')) {
+      console.log('Usage: node scripts/install-hooks-codex.js [PROJECT_ROOT] [--dry-run] [--remove-local] [--json]\n'
+        + 'Default: replace verified direct/adapter Citadel handlers with current adapter hooks.\n'
+        + '--remove-local: remove only verified Citadel handlers before plugin installation.\n'
+        + 'Ambiguous handlers block writes. Unrelated handlers and top-level settings are preserved.');
+      return;
     }
     const hooksTemplatePath = path.join(CITADEL_ROOT, 'hooks', 'hooks-template.json');
     const hooksTemplate = JSON.parse(fs.readFileSync(hooksTemplatePath, 'utf8'));
     const adapterScriptPath = path.join(CITADEL_ROOT, 'hooks_src', 'codex-adapter.js');
     const outputPath = path.join(PROJECT_ROOT, '.codex', 'hooks.json');
-    const existingHooks = fs.existsSync(outputPath)
-      ? (JSON.parse(fs.readFileSync(outputPath, 'utf8')).hooks || {})
-      : {};
+    const existingConfig = fs.existsSync(outputPath) ? JSON.parse(fs.readFileSync(outputPath, 'utf8')) : {};
+    const existingHooks = existingConfig.hooks || {};
+    const ownership = inspectCodexHookOwnership(existingHooks, { hooksTemplate, adapterScriptPath });
+    assertUnambiguous(ownership);
+    if (!REMOVE_LOCAL) assertNoPluginHooks(PROJECT_ROOT);
+    const preview = loadResolvedConfig(PROJECT_ROOT, { runtime: codexRuntime });
+    if (!REMOVE_LOCAL && preview.receipt.status === 'blocked') {
+      throw new Error(`Harness config blocks hook installation: ${preview.receipt.errors.join('; ')}`);
+    }
+    const backupPath = `${outputPath}.pre-citadel-migration`;
+    if (!DRY_RUN && ownership.owned.length && !fs.existsSync(backupPath)) {
+      fs.writeFileSync(backupPath, fs.readFileSync(outputPath), { flag: 'wx' });
+    }
+    if (REMOVE_LOCAL) {
+      if (!DRY_RUN && ownership.owned.length) writeJson(outputPath, { ...existingConfig, hooks: ownership.preserved });
+      const report = { outputPath, backupPath, dryRun: DRY_RUN, mode: 'remove-local', ownership };
+      console.log(JSON_OUTPUT ? JSON.stringify(report, null, 2) : `${DRY_RUN ? 'Would remove' : 'Removed'} ${ownership.owned.length} verified Citadel handlers; user handlers preserved.`);
+      return;
+    }
+    const resolved = DRY_RUN ? preview : reconcileEffectiveConfig(PROJECT_ROOT, { runtime: codexRuntime });
 
     const result = installCodexHooks({
       hooksTemplate,
@@ -35,11 +59,15 @@ function main() {
       outputPath,
       projectRoot: PROJECT_ROOT,
       effectiveBundles: resolved.receipt.bundles.effective,
+      dryRun: DRY_RUN,
     });
 
     if (JSON_OUTPUT) {
       process.stdout.write(JSON.stringify({
         outputPath,
+        dryRun: DRY_RUN,
+        backupPath,
+        ownership: result.ownership,
         installed: result.installed,
         skipped: result.skipped,
         warnings: result.warnings || [],
@@ -51,7 +79,7 @@ function main() {
       return;
     }
 
-    console.log(`Citadel Codex hooks installed to ${outputPath}`);
+    console.log(`Citadel Codex hooks ${DRY_RUN ? 'would be installed' : 'installed'} to ${outputPath}`);
     console.log(`  ${result.installed.length} Citadel hooks translated for Codex`);
     console.log(`  Product bundles: ${resolved.receipt.bundles.effective.join(', ')}`);
     if (result.diagnostics?.length) {
@@ -85,7 +113,8 @@ function main() {
       }
     }
   } catch (error) {
-    console.error(`Error: ${error.message}`);
+    if (JSON_OUTPUT) console.log(JSON.stringify({ pass: false, code: error.code || 'CODEX_HOOK_INSTALL_FAILED', message: error.message, diagnostics: error.diagnostics || [] }, null, 2));
+    else console.error(`Error: ${error.message}`);
     process.exit(1);
   }
 }

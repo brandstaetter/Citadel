@@ -441,4 +441,25 @@ test('CLI initialization accepts only compatibility fields and reconciles derive
   assert.match(rejected.stderr, /unsupported fields: execution/);
 });
 
+test('CLI initializes Copilot with a usable Copilot receipt for both runtime names', () => {
+  const runtime = require('../runtimes/copilot/runtime');
+  for (const runtimeId of ['copilot', 'github-copilot']) {
+    const root = tempProject();
+    const input = path.join(root, 'stack.json');
+    fs.writeFileSync(input, '{"language":"javascript"}\n');
+    const shown = runCli(root, ['show', '--runtime', runtimeId, '--json']);
+    assert.equal(shown.status, 0, shown.stderr);
+    assert.equal(JSON.parse(shown.stdout).runtime.id, 'copilot');
+    const applied = runCli(root, [
+      'initialize', '--input', input, '--runtime', runtimeId, '--apply', '--json',
+    ]);
+    assert.equal(applied.status, 0, applied.stderr);
+    const effective = config.readEffectiveConfig(root, { runtime });
+    assert.equal(effective.usable, true);
+    assert.equal(effective.receipt.runtime.id, 'copilot');
+    assert.deepEqual(effective.receipt.bundles.effective, ['core', 'persistence']);
+    assert.equal(fs.existsSync(path.join(root, '.claude', 'settings.json')), false);
+  }
+});
+
 process.stdout.write(`\nConfig policy tests passed: ${passed}\n`);

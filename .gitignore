@@ -11,6 +11,7 @@
 .citadel/*
 !.citadel/project.md
 !.citadel/project.template.md
+!.citadel/agents/
 
 # Desktop app (experimental, not production-ready)
 apps/

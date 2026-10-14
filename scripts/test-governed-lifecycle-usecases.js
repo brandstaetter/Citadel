@@ -176,6 +176,8 @@ function sourceRepository(root, version) {
   };
   return initializeGit(root, {
     'package.json': `${JSON.stringify({ name: 'citadel', version }, null, 2)}\n`,
+    'plugin.json': `${JSON.stringify({ name: 'citadel', version })}\n`,
+    'hooks_src/codex-adapter.js': '// Synthetic Citadel installation marker for ownership tests.\n',
     '.citadel/project.template.md': `# Citadel ${version}\n`,
     'hooks/hooks-template.json': `${JSON.stringify(hookTemplate, null, 2)}\n`,
     'skills/review/SKILL.md': `---\nname: review\n---\n# Review ${version}\n`,

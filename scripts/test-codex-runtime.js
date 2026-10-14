@@ -24,6 +24,35 @@ const projectRoot = path.join(__dirname, '..');
 const hookProject = fs.mkdtempSync(path.join(os.tmpdir(), 'citadel-codex-hooks-'));
 process.on('exit', () => fs.rmSync(hookProject, { recursive: true, force: true }));
 const hookEnv = { ...process.env, CLAUDE_PROJECT_DIR: hookProject };
+// Windows parent process inspection can see only node.exe in multi-runtime
+// projects. Keep detection fail-closed; the adapter must supply the identity.
+for (const name of ['.claude', '.codex', '.opencode']) fs.mkdirSync(path.join(hookProject, name));
+const { detectRuntime } = require('../core/runtime/detect-runtime');
+assert.throws(() => detectRuntime(hookProject, { env: {}, platform: 'win32', execFileSync: () => 'node.exe' }),
+  { code: 'CITADEL_RUNTIME_AMBIGUOUS' });
+assert.equal(detectRuntime(hookProject, { env: { CITADEL_RUNTIME: 'codex' }, platform: 'win32', execFileSync: () => 'node.exe' }).runtime, 'codex');
+const configControl = require('../core/config');
+fs.writeFileSync(path.join(hookProject, '.claude', 'harness.json'), JSON.stringify(configControl.createDefaultConfig()));
+configControl.reconcileEffectiveConfig(hookProject, { runtime: codexRuntime.runtime });
+const unidentifiedEnv = { ...hookEnv };
+delete unidentifiedEnv.CITADEL_RUNTIME;
+const ambiguousNative = spawnSync(process.execPath, [adapterPath, 'external-action-gate'], {
+  cwd: hookProject, env: unidentifiedEnv, encoding: 'utf8',
+  input: JSON.stringify({ hook_event_name: 'PreToolUse', cwd: hookProject, tool_name: 'exec_command',
+    tool_input: { cmd: 'git push --force origin main', command: 'echo harmless' } }),
+});
+assert.equal(ambiguousNative.status, 2, 'conflicting command aliases must fail closed');
+for (const toolName of ['shell_command', 'exec_command']) {
+  for (const [command, expected] of [['echo harmless-native-call', 0], ['git push --force origin main', 2]]) {
+    const native = spawnSync(process.execPath, [adapterPath, 'external-action-gate'], {
+      cwd: hookProject, env: unidentifiedEnv, encoding: 'utf8',
+      input: JSON.stringify({ hook_event_name: 'PreToolUse', cwd: hookProject, tool_name: toolName,
+        tool_input: toolName === 'exec_command' ? { cmd: command } : { command } }),
+    });
+    assert.equal(native.status, expected, `${toolName}: ${native.stderr}`);
+    assert(!native.stderr.includes('active runtime is not inferable'));
+  }
+}
 const payload = {
   hook_event_name: 'PreToolUse',
   cwd: hookProject,

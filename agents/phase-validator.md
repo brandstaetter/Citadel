@@ -7,7 +7,7 @@ description: >-
   Spawned by Archon after each phase and by Fleet after each wave agent.
 maxTurns: 15
 effort: low
-model: claude-haiku-4-5
+model: haiku
 disallowedTools:
   - Bash
   - Write
@@ -19,6 +19,11 @@ disallowedTools:
 tools:
   - Read
 ---
+
+<!-- Generated from .citadel/agents/phase-validator.md; do not edit. -->
+
+Runtime model mapping: xlarge = fable; large = opus; medium = sonnet; small = haiku. Resolve placeholders through this mapping before explicit worker calls. For named Citadel agents, omit per-call model overrides to retain their configured model. Never send a placeholder to the runtime. If a required model is unavailable, report it instead of silently downgrading.
+
 
 # Phase Validator
 

@@ -271,6 +271,7 @@ function testInstalledCodexMcpEntrypoints() {
       '--skip-windows-check',
       '--json',
     ], {
+      env: { ...process.env, CODEX_HOME: path.join(tmp, 'codex-home') },
       cwd: projectRoot,
       encoding: 'utf8',
       stdio: 'pipe',

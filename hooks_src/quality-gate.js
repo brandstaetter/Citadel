@@ -58,17 +58,16 @@ if (require.main === module) {
   process.stdin.setEncoding('utf-8');
   process.stdin.on('data', chunk => { input += chunk; });
   process.stdin.on('end', () => {
+    let ctx = {};
     try {
-      const ctx = JSON.parse(input);
-      // Prevent infinite loop — if this hook already fired, exit clean
-      if (ctx.stop_hook_active) {
-        process.exit(0);
-        return;
-      }
-      run(ctx);
-    } catch {
-      run();
+      ctx = JSON.parse(input) || {};
+    } catch { /* Missing context still permits verification. */ }
+    // Prevent infinite loop — if this hook already fired, exit clean.
+    if (ctx.stop_hook_active) {
+      process.exit(0);
+      return;
     }
+    run(ctx);
   });
 }
 
@@ -189,6 +188,21 @@ function selectColdPathLenses(file, content, config = health.readConfig()) {
   return lenses.filter(l => !disabled.has(l) && !ignored.has(l));
 }
 
+function changedFilesFromGit(projectDir, execute = (args, options) => execFileSync('git', args, options)) {
+  const options = { cwd: projectDir, encoding: 'utf8', timeout: 2500,
+    stdio: ['pipe', 'pipe', 'pipe'] };
+  let output;
+  try {
+    output = execute(['diff', '--name-only', '-z', 'HEAD'], options);
+  } catch (error) {
+    // Only an unborn HEAD warrants a retry. In particular, never spend a
+    // second timeout on a slow/unavailable Git process.
+    if (error.code === 'ETIMEDOUT' || !/ambiguous argument 'HEAD'|bad revision 'HEAD'/.test(String(error.stderr))) throw error;
+    output = execute(['diff', '--name-only', '-z'], options);
+  }
+  return output.split('\0').filter(Boolean);
+}
+
 function run(context = {}) {
   health.increment('quality-gate', 'count');
 
@@ -198,25 +212,13 @@ function run(context = {}) {
   // Get recently modified files from git
   let changedFiles = [];
   try {
-    let output;
-    try {
-      output = execFileSync('git', ['diff', '--name-only', 'HEAD'], {
-        cwd: projectDir,
-        encoding: 'utf8',
-        timeout: 5000,
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
-    } catch {
-      // HEAD may not exist (fresh repo) — fall back to plain diff
-      output = execFileSync('git', ['diff', '--name-only'], {
-        cwd: projectDir,
-        encoding: 'utf8',
-        timeout: 5000,
-        stdio: ['pipe', 'pipe', 'pipe'],
-      });
+    changedFiles = changedFilesFromGit(projectDir);
+  } catch (error) {
+    const message = `[Quality Gate] Verification incomplete: Git discovery failed (${error.code || 'git-error'}).`;
+    process.stderr.write(`${message}\n`);
+    if (config.qualityRules?.blocking) {
+      process.stdout.write(JSON.stringify({ decision: 'block', reason: message }));
     }
-    changedFiles = output.trim().split('\n').filter(Boolean);
-  } catch {
     process.exit(0);
   }
 
@@ -623,11 +625,13 @@ function lensCustom(file, content, config) {
 }
 
 module.exports = {
+  changedFilesFromGit,
   parseIgnoreFile,
   isIgnoredViolation,
   parseInlineIgnores,
   selectColdPathLenses,
   lensCrossReference,
+  lensContractual,
   lensPerformance,
   lensContractual,
 };

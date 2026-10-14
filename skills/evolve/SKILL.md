@@ -24,6 +24,8 @@ trigger_keywords:
 last-updated: 2026-05-03
 ---
 
+**Runtime model dispatch:** Agent definitions in `.citadel/agents/` use `xlarge`, `large`, `medium`, and `small`. Read `runtimes/<runtime>/agent-settings.json` (runtime: `claude-code`, `copilot`, or `codex`) to resolve these placeholders before explicit worker calls. For named Citadel agents, omit the per-call model override and use the generated definition. Never send a placeholder as a native model ID or silently downgrade an unavailable model.
+
 # /evolve — Improvement Director
 
 ## Orientation

@@ -14,7 +14,7 @@ function projectCodexAgents(options = {}) {
   const dryRun = options.dryRun === true;
   const agentConfig = options.agentConfig || loadCodexAgentConfig(projectRoot);
 
-  const sourceBase = path.join(citadelRoot, 'agents');
+  const sourceBase = path.join(citadelRoot, '.citadel', 'agents');
   const targetBase = path.join(projectRoot, '.codex', 'agents');
   const agentFiles = agentName
     ? [`${agentName}.md`]

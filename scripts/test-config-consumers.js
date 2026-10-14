@@ -241,6 +241,12 @@ const staleDirectBlocked = run(
   { CLAUDE_PROJECT_DIR: root, CITADEL_RUNTIME: 'claude-code' },
 );
 assert.equal(staleDirectBlocked.status, 2);
+  const staleError = fs.readFileSync(path.join(root, '.planning', 'telemetry', 'hook-errors.jsonl'), 'utf8')
+    .trim().split('\n').map(JSON.parse).findLast((entry) => entry.action === 'bundle-blocked');
+  assert.equal(staleError.runtime, 'claude-code');
+  assert.equal(staleError.projectRoot, root);
+  assert.equal(staleError.configPath, path.join(root, '.claude', 'harness.json'));
+  assert.match(staleError.sourceDigest, /^sha256:/);
 assert.match(
   staleDirectBlocked.stderr,
   /EFFECTIVE_CONFIG_STALE.*reconcile --project-root .* --apply --runtime claude-code --json/,
