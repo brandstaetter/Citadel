@@ -14,7 +14,7 @@ trigger_keywords:
   - configure harness
   - install citadel
   - getting started
-last-updated: 2026-04-06
+last-updated: 2026-10-14
 ---
 
 # /do setup — First-Run Experience
@@ -170,6 +170,8 @@ Claude Code v2.1.277 or later can use only `AGENTS.md`, but the version alone do
 - Exists with `## Citadel Harness` → skip, don't duplicate
 - NEVER overwrite or delete existing content
 
+### Step 4b: CODEX SHORTHANDS (all Codex setup modes, including Update)
+Run `node {citadelRoot}/scripts/codex-shorthands.js --project-root {projectRoot}`. This generates explicit-only `$name` wrappers in `.agents/skills/{name}/` for every shipped Citadel skill, delegating to the installed `citadel:name` catalog entry. It reads the package without modifying it. Existing unowned or edited skills are preserved; report `preserved` collisions and `stale` retired entries for manual review. Never overwrite them to force an alias. If generation fails or the script is missing, report shorthand setup as incomplete and continue independent setup work. On Update, use `--dry-run` first and show the planned changes. Use `$do` in the Codex reference card and closing line only when the alias is available; otherwise use `$citadel:do`. Restart Codex if new aliases do not appear. File generation does not prove live discovery.
 ### Step 5: OPTIONAL INTEGRATIONS (Recommended + Full Tour only)
 
 Present as one prompt:

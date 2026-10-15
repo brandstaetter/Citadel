@@ -147,3 +147,4 @@ docs/FACELIFT_PLAN.md
 
 # Source-only documentation images (excluded from npm tarballs by the root ignore policy)
 docs/images/
+/.scratch

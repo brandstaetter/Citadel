@@ -7,22 +7,39 @@
 
 # Citadel
 
-**An open-source operating layer for Claude Code and OpenAI Codex.**
+**An open-source operating layer for Claude Code, OpenAI Codex, OpenCode, and GitHub Copilot CLI.**
 
 Citadel routes requests, preserves repository state between sessions,
 coordinates parallel work, applies repository safeguards, and records evidence
 and handoffs around the coding agent you already use.
 
-[Install](#install) · [Start using it](#start-using-it) · [Trust boundary](#trust-boundary) · [Documentation](#documentation)
+[Supported runtimes](#supported-runtimes) · [Install](#install) · [Start using it](#start-using-it) · [Trust boundary](#trust-boundary) · [Documentation](#documentation)
 
 </div>
 
+## Supported runtimes
+
+The same skills, agents, hooks, and repo-local state run on every supported
+runtime. What differs is how each runtime loads Citadel and how strictly it can
+enforce hooks.
+
+| Runtime | Install path | Hook enforcement | Known limits |
+|---|---|---|---|
+| **Claude Code** | Native plugin marketplace | Full lifecycle hook model | Shell containment is not supported on native Windows |
+| **OpenAI Codex** | Native plugin marketplace | Native lifecycle hooks through an adapter; you review them in `/hooks` | CLI worktree handoff is Citadel-managed |
+| **OpenCode** | Installer from a release archive (since v1.4.0) | In-process plugin that blocks before a tool runs | Stop events cannot block, `!` shell commands are not gated, and plugins load only at startup |
+| **GitHub Copilot CLI** | Native Agent Plugin via installer (not yet in a tagged release) | Command hooks; crashes fail closed for the security gates | Hook timeouts fail open; cloud-agent permission requests are not enforced |
+
+Each runtime declares its capabilities and degradations in
+`runtimes/<id>/runtime.js`. Citadel reads `CITADEL_RUNTIME` (`claude-code`,
+`codex`, `opencode`, or `copilot`) when it cannot detect the runtime itself.
+
 ## Install
 
-**Requires:** Claude Code or OpenAI Codex, Node.js 22+, and a git repository.
+**Requires:** a supported runtime, Node.js 22+, and a git repository.
 
-Citadel is installed through the plugin marketplace already built into your
-coding agent. The commands below pin the complete `v1.4.4` release; if that tag
+Claude Code and Codex install Citadel through their built-in plugin
+marketplace. The commands below pin the complete `v1.4.4` release; if that tag
 is not present on [GitHub Releases](https://github.com/SethGammon/Citadel/releases),
 do not substitute floating `main`.
 
@@ -51,6 +68,41 @@ claude plugin install citadel@citadel-local --scope local
 
 Run `/reload-plugins` if Claude Code is already open, then give Citadel a real
 request such as `/do review README.md`.
+
+### OpenCode
+
+OpenCode has no plugin marketplace. Download and verify a release archive as
+described under *Manual, offline, and high-assurance installation* below. Then
+run the installer and readiness check from the repository you want Citadel to
+manage:
+
+```bash
+node "$CITADEL_ROOT/scripts/install.js" --runtime opencode --dry-run
+node "$CITADEL_ROOT/scripts/install.js" --runtime opencode
+node "$CITADEL_ROOT/scripts/opencode-readiness-check.js" --project-root .
+```
+
+Restart OpenCode after installing. It discovers plugins only at startup, so a
+session that was already running stays ungated. If OpenCode cannot load the
+plugin, it keeps running with no Citadel hooks, so check the readiness output.
+The `--dry-run` output lists every file the installer writes and every known
+hook limitation.
+
+### GitHub Copilot CLI
+
+Copilot CLI support is newer than `v1.4.3`. No tagged release includes it yet,
+so until one does it is only available from a development source checkout.
+Once you have a Citadel root that includes it, run:
+
+```bash
+node "$CITADEL_ROOT/scripts/install.js" --runtime copilot --install
+node "$CITADEL_ROOT/scripts/copilot-readiness-check.js" --project-root .
+```
+
+This command registers the `citadel-local` marketplace and installs the native
+Agent Plugin. If plugins are unavailable, `--fallback` writes machine-local
+hooks instead. [Installation](INSTALL.md#github-copilot-native-plugin) covers
+subagent models, sandbox interaction mode, and the plain `/do` alias.
 
 ### Prefer to have your agent install it?
 
@@ -106,8 +158,10 @@ node "$CITADEL_ROOT/scripts/adopt.js" apply ../citadel-adoption.plan.json \
 node "$CITADEL_ROOT/scripts/adopt.js" doctor --target . --json
 ```
 
-Use `--project-runtime claude` for Claude Code or `both` only when both runtime
-projections are intentional. Runtime-specific enable steps are in
+Use `--project-runtime claude` for Claude Code or `copilot` for Copilot CLI.
+Use `both` (Claude and Codex) or `all` (adds Copilot) only when several runtime
+projections are intentional. OpenCode does not use governed adoption; run its
+installer instead. Runtime-specific enable steps are in
 [Installation](INSTALL.md).
 
 Keep every saved plan outside the target repository. Writing the plan inside
@@ -223,8 +277,10 @@ remains open.
 
 ## Trust boundary
 
-- Citadel runs with the permissions of Claude Code or Codex. It is not a
-  sandbox and does not replace code review or branch protection.
+- Citadel runs with the permissions of its host runtime. It is not a sandbox
+  and does not replace code review or branch protection.
+- Hook enforcement is only as strong as the runtime allows. See
+  [Supported runtimes](#supported-runtimes) for the gaps on each one.
 - Verification reports `passed`, `failed`, `blocked`, or `unknown`. Missing
   evidence is not promoted to success.
 - Project state and telemetry stay local by default. Citadel does not commit,
@@ -263,15 +319,18 @@ Citadel keeps operational state separate from application code:
 
 **Does Citadel work on Windows?**
 
-Yes. Hooks and scripts run on Node.js, and the Codex installer includes Windows
-readiness checks.
+Yes. Hooks and scripts run on Node.js. The Codex installer includes Windows
+readiness checks, and the OpenCode adapter has been verified on Windows 11.
+Claude Code shell containment is not supported on native Windows. Only
+direct-tool file protection applies there.
 
 **Can I choose which model each agent uses?**
 
-Yes. Codex agent models and reasoning effort are project configuration, not
-hardcoded internals. Citadel ships current Sol, Terra, and Luna defaults and
-supports per-family or per-agent overrides, including `max` and `ultra` where
-the selected Codex model supports them. See
+Yes. Shared agent definitions request a size tier (`xlarge`, `large`,
+`medium`, or `small`). Each runtime maps those tiers to its own models in
+`runtimes/<id>/agent-settings.json`, so you can change a tier without editing
+any agent. Codex also supports per-family and per-agent project overrides,
+including `max` and `ultra` effort where the selected model supports them. See
 [Agent model configuration](docs/CLI.md#agent-model-configuration).
 
 **How do I remove it?**

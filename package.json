@@ -79,6 +79,7 @@
     "scripts/claude-install.js",
     "scripts/codex-compat.js",
     "scripts/codex-install.js",
+    "scripts/codex-shorthands.js",
     "scripts/copilot-install.js",
     "scripts/copilot-readiness-check.js",
     "scripts/install-hooks-copilot.js",

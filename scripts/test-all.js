@@ -163,6 +163,7 @@ const UNLOCK_TESTS = Object.freeze([
   ['Representative operation pilot v2', 'test-representative-operation-pilot-v2.js'],
   ['V1 timeout sensitivity', 'sentient-readiness-sensitivity.js'],
   ['Freeze dependency closure', 'application-freeze-closure.js'],
+  ['Codex shorthands', 'test-codex-shorthands.js'],
   ['Local measurement arithmetic', 'local-measurement-audit.js'],
   ['Hosted site smoke contract', 'test-hosted-site-smoke-contract.js'],
   ['Public install path', 'test-public-install-path.js'],

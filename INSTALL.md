@@ -1,20 +1,34 @@
 # Install Citadel
 <!-- citadel:ignore cross-reference -->
 
-The canonical stable installation guide. Citadel installs through the native
-plugin marketplace in Claude Code or OpenAI Codex. GitHub Releases remain the
-version and high-assurance artifact boundary; source `main` is development-only,
-and the public npm package named `citadel` is unrelated to this project.
+The canonical stable installation guide. Citadel supports four runtimes:
+
+| Runtime | How Citadel installs |
+|---|---|
+| Claude Code | Native plugin marketplace |
+| OpenAI Codex | Native plugin marketplace |
+| OpenCode | `scripts/install.js --runtime opencode` from a verified release (since v1.4.0) |
+| GitHub Copilot CLI | `scripts/install.js --runtime copilot`, native Agent Plugin (not yet in a tagged release) |
+
+GitHub Releases remain the version and high-assurance artifact boundary; source
+`main` is development-only, and the public npm package named `citadel` is
+unrelated to this project.
 
 ## Prerequisites
 
-- **Claude Code** or **OpenAI Codex**: the runtime Citadel extends.
+- A supported runtime: **Claude Code**, **OpenAI Codex**, **OpenCode** 1.18.x,
+  or **GitHub Copilot CLI**.
 - **[Node.js 22+](https://nodejs.org/)**: a supported LTS release required for hooks and scripts.
 - A git repository you want Citadel to manage.
 
 Authentication depends on the runtime you use. Citadel layers on top of the runtime you already have configured. There is no build step and no `npm install`; Citadel runs directly on Node.js.
 
 ## Recommended: Native Plugin Marketplace
+
+This path applies to Claude Code and Codex. OpenCode and Copilot CLI have no
+marketplace install for Citadel; use the [manual install](#manual-install) and
+then the [OpenCode](#opencode-plugin) or
+[Copilot](#github-copilot-native-plugin) section.
 
 The commands below pin `v1.4.4`. If that tag is not present on
 [GitHub Releases](https://github.com/SethGammon/Citadel/releases), stop rather
@@ -110,7 +124,9 @@ node "$env:CITADEL_ROOT\scripts\install.js" --runtime codex --install
 ```
 
 Use `--project-runtime claude` plus the Claude installer flags shown below when
-Claude Code is the intended runtime.
+Claude Code is the intended runtime. For OpenCode, skip `adopt.js` and run the
+[OpenCode installer](#opencode-plugin). For Copilot CLI, see
+[GitHub Copilot native plugin](#github-copilot-native-plugin).
 
 On Linux or macOS, verify the sidecar with `sha256sum -c` (or compare
 `shasum -a 256` output on macOS), then independently compare the result with
@@ -162,9 +178,10 @@ Write the plan outside the target repository. Creating a plan inside the target
 changes the target after its preflight snapshot and invalidates apply with
 `TARGET_DRIFT`.
 
-Use `--project-runtime claude`, `--project-runtime copilot`, or
-`--project-runtime both` when Claude and Codex projections are intentional.
-Use `--project-runtime all` to include Copilot. Review the
+Use `--project-runtime claude` or `--project-runtime copilot` for a single
+runtime. Use `--project-runtime both` only when Claude and Codex projections
+are both intentional, and `--project-runtime all` to add Copilot as well.
+OpenCode is not a governed-adoption runtime; it uses its own installer. Review the
 owned/shared footprint and every external registration whose removal evidence
 is `unknown`. Then apply the exact saved plan:
 
@@ -201,7 +218,67 @@ Use `--dry-run --json` to review `outputs`, `inventory`, `diagnostics`, and
 `machineLocalExcludes`; a `DUPLICATE_CITADEL_REGISTRATION` diagnostic names the
 roots that need reconciliation.
 
+### OpenCode plugin
+
+OpenCode has no command hooks. Citadel installs an in-process plugin that runs
+the same Node hook scripts and blocks a tool call by throwing before it runs.
+Requirements: OpenCode 1.18.x and a real Node.js on `PATH`. OpenCode runs on
+Bun, so the plugin looks up Node separately; set `CITADEL_NODE` if it picks the
+wrong binary.
+
+From your target project root:
+
+```bash
+node "$CITADEL_ROOT/scripts/install.js" --runtime opencode --dry-run
+node "$CITADEL_ROOT/scripts/install.js" --runtime opencode
+node "$CITADEL_ROOT/scripts/opencode-readiness-check.js" --project-root .
+```
+
+The readiness check exits 0 when the required checks pass. Its last check asks
+the real hook to refuse a `.env` read. Add `--strict` to also fail on advisory
+gaps.
+
+The installer writes:
+
+| Path | Purpose |
+|---|---|
+| `.opencode/plugin/citadel.js` | Stub that loads the adapter from `$CITADEL_ROOT` by absolute path |
+| `opencode.json` | Merged key by key: `$schema`, `mcp.citadel-state`, and `skills.paths`; user keys are preserved |
+| `.opencode/agent/*.md` | Citadel subagents |
+| `.opencode/commands/*.md` | Wrappers that pass slash-command arguments into each skill |
+| `.citadel/skills/` | Project-local skill projection |
+| `.citadel/scripts/` | Delegates that run Citadel utilities from `$CITADEL_ROOT` |
+
+Re-running the installer is idempotent and refreshes the skill projection after
+an upgrade. Use `--skip-agents`, `--skip-skills`, or `--skip-guidance` to leave
+those surfaces out, and `--overwrite-guidance` only if you want an existing
+`AGENTS.md` replaced.
+
+Because the stub points at `$CITADEL_ROOT`, keep the extracted release in a
+stable location. If you move it, re-run the installer.
+
+**Restart OpenCode after installing.** It discovers plugins once per process,
+so a session that was already running stays ungated. A plugin that fails to
+load is silent: OpenCode keeps running with no Citadel hooks. To confirm the
+plugin loaded, run `opencode --print-logs --log-level DEBUG` and look for the
+`[citadel] hooks ok` line in the startup log.
+
+Known OpenCode limits, all upstream properties rather than Citadel defects:
+
+- The stop event cannot block. Quality-gate findings are delivered on the next
+  turn instead of preventing the turn from ending.
+- `permission.ask` never fires, so Citadel gates on `tool.execute.before`.
+- Shell commands a human types with `!` in the TUI are not gated. Shell
+  commands the model issues are gated.
+
+There is no OpenCode uninstall flag yet. To remove Citadel, delete the files in
+the table above and remove the `citadel-state` MCP entry and the
+`./.citadel/skills` path from `opencode.json`.
+
 ### GitHub Copilot native plugin
+
+Copilot CLI support is newer than `v1.4.3` and not yet in a tagged release.
+Until one includes it, use a development source checkout as `CITADEL_ROOT`.
 
 From your target project root:
 
@@ -365,8 +442,8 @@ observed or unknown status.
 
 ## First Run
 
-Start a fresh Claude Code or Codex task in your project and give Citadel a real
-request:
+Start a fresh session in your project (restart OpenCode if it was already
+running) and give Citadel a real request:
 
 ```text
 /do review README.md
@@ -411,9 +488,11 @@ In all modes, setup:
 6. **Runs a bounded live demo** in Recommended and Full Tour modes.
 
 > **Why does the runtime-specific install still matter?**
-> Claude Code and Codex use different native marketplace, activation, reload,
-> and hook-trust flows. The native plugin remains the authority. Compatibility
-> project projections are advanced migration tools, not the default install.
+> Each runtime has its own activation, reload, and hook-trust flow: Claude Code
+> and Codex use native marketplaces, Copilot CLI uses a native Agent Plugin, and
+> OpenCode loads an in-process plugin at startup. The runtime's own plugin
+> remains the authority. Compatibility project projections are advanced
+> migration tools, not the default install.
 
 ### Route your first task
 
@@ -487,7 +566,8 @@ node scripts/golden-path.js --runtime codex --fixture scripts/fixtures/golden-pa
 ```
 
 These are isolated fixture runs, not proof of plugin registration or real-user
-timing.
+timing. The golden path covers Claude and Codex only; for OpenCode and Copilot
+CLI, use their readiness checks.
 
 In your target project, success looks like this scaffold, created by the `init-project` hook on first session start:
 
@@ -537,7 +617,8 @@ Update switches immutable generations only after verification. Rollback uses
 the retained predecessor receipt and declared state migration compatibility.
 Leave creates a versioned portable archive, restores exact shared-file
 pre-images, deletes only unchanged owned material, and retains modified or
-ambiguous entries. `citadel uninstall` is a compatibility alias for the same
+ambiguous entries. OpenCode installs are not covered by these plans; see
+[OpenCode plugin](#opencode-plugin) for removal. `citadel uninstall` is a compatibility alias for the same
 leave plan/apply path. A legacy install without a receipt must first use
 `adopt import plan`; the emergency `unharness --legacy-apply` path is explicitly
 inexact and cannot support an exact-removal claim.
@@ -550,7 +631,18 @@ Re-run the runtime-specific install step from your project root, then re-run `/d
 ```bash
 node "$CITADEL_ROOT/scripts/install.js" --runtime claude --install --scope local
 node "$CITADEL_ROOT/scripts/install.js" --runtime codex --install
+node "$CITADEL_ROOT/scripts/install.js" --runtime opencode
+node "$CITADEL_ROOT/scripts/install.js" --runtime copilot --install
 ```
+
+On OpenCode, restart the process after reinstalling and confirm the
+`[citadel] hooks ok` startup log line. On OpenCode and Copilot CLI, the readiness
+checks name the failing piece.
+
+**Wrong runtime detected:**
+When several runtime directories coexist, set `CITADEL_RUNTIME` to
+`claude-code`, `codex`, `opencode`, or `copilot`, or pass `--runtime` to the
+installer explicitly.
 
 Alternatively, run the hook installer directly from your project directory:
 
@@ -583,7 +675,8 @@ An improve loop hit distribution saturation and needs human approval for the nex
 ## Next Steps
 
 - Add your project's conventions to `CLAUDE.md`; the more specific, the better.
-- Add your project's conventions to `AGENTS.md` if you use Codex.
+- Add your project's conventions to `AGENTS.md` if you use Codex, OpenCode, or
+  Copilot CLI.
 - Run `/do --list` to see all <!-- GENERATED: skill-count -->48<!-- /GENERATED --> installed skills.
 - Drop a task in `.planning/intake/` and run `/autopilot` for hands-off execution.
 - Read [Routing Preview](docs/ROUTING_PREVIEW.md) before treating static candidate evidence as a selected route.
